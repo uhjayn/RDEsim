@@ -1,0 +1,83 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  14
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      rdeProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+flowModel          euler;
+equationOfState    perfectGas;
+ddtScheme          Euler;
+
+chemistry
+{
+    model                  oneStepProgress;
+    A                      100000000;
+    beta                   0;
+    Ta                     10000;
+    TRef                   300;
+    TFloor                 200;
+    ignitionTemperature    1200;
+    lambdaMin              0;
+    lambdaMax              1;
+    q                      3421395.03309;
+    sourceIntegration      pointImplicit;
+    sourceDependsOnGradients no;
+}
+
+hyperbolicity
+{
+    requireStrictlyHyperbolic    yes;
+    gammaMin    1.0000001;
+    rhoMin    1e-08;
+    pMin    1;
+    TMin    1;
+    c2Min    1;
+    maxCoStability    1;
+    sourceDependsOnGradients    no;
+    boundaryCoupling    local;
+    hyperbolicFluxSchemes    (Kurganov Tadmor);
+    hyperbolicEquationsOfState    (perfectGas);
+    localSourceIntegrations    (pointImplicit explicit);
+}
+
+objectives
+(
+    {
+        name    pMeanOutlet;
+        field    p;
+        region    patch;
+        patch    outlet;
+        operation    areaAverage;
+    }
+    {
+        name    pMeanInlet;
+        field    p;
+        region    patch;
+        patch    injector;
+        operation    areaAverage;
+    }
+    {
+        name    TMax;
+        field    T;
+        region    volume;
+        operation    max;
+    }
+    {
+        name    lambdaMax;
+        field    lambda;
+        region    volume;
+        operation    max;
+    }
+);
+
+// ************************************************************************* //

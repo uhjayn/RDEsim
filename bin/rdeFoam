@@ -1,0 +1,5 @@
+#!/bin/sh
+# Run the case in the current directory with the rdeFluid module.
+# controlDict already sets "solver rdeFluid;". foamRun loads
+# $FOAM_USER_LIBBIN/librdeFluidSolver.so from that name.
+exec foamRun -solver rdeFluid "$@"

@@ -1,0 +1,76 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  14
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      fuelDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Illustrative ethylene-air library entry. Copy this directory and edit
+// fuelDict to add another fuel. Select it with fuel.name in rdeConfig.
+
+fuel
+{
+    name        C2H4;
+    molWeight   0.028054;
+}
+
+oxidizer
+{
+    oxygenMoleFraction  0.21;
+    species
+    (
+        { name O2; molWeight 0.031998; moleFraction 0.21; }
+        { name N2; molWeight 0.028014; moleFraction 0.79; }
+    );
+}
+
+stoichiometry
+{
+    // C2H4 + 3 O2 -> products.
+    nuFuel      1;
+    nuOxygen    3;
+}
+
+heatRelease
+{
+    LHV         4.72e7;
+}
+
+thermo
+{
+    model               hConst;
+    equationOfState     perfectGas;
+    composition         frozenReactants;
+    gamma               1.24;
+    hf                  0;
+    productMolWeight    0.028;
+    productGamma        1.17;
+}
+
+transport
+{
+    mu              1.7e-5;
+    Pr              0.75;
+}
+
+chemistry
+{
+    model                   oneStepProgress;
+    A                       2.5e8;
+    beta                    0;
+    Ta                      15000;
+    TRef                    300;
+    TFloor                  250;
+    ignitionTemperature     1100;
+    lambdaMin               0;
+    lambdaMax               1;
+}
+
+// ************************************************************************* //
