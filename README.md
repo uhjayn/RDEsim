@@ -2,16 +2,11 @@
 
 OpenFOAM runs in WSL. ParaView runs on Windows and opens the case through the WSL path.
 
-Edit `cases/annulus2D/rdeConfig` and `fuels/<name>/fuelDict` in Cursor. Those two files are the case. There is no separate GUI. With the folder open in Cursor's WSL window, run a task instead of typing the shell commands: Command Palette → **Tasks: Run Task**.
+Edit `cases/annulus2D/rdeConfig` and `fuels/<name>/fuelDict` in Cursor. Those two files are the case. There is no separate GUI. Then start **RDEsim: Run and visualize** from Command Palette → **Tasks: Run Task**. That one task runs `./bin/rdesim-wsl simulate`. The script sources the OpenFOAM 14 bashrc, prepares `cases/annulus2D` from `rdeConfig`, builds with `Allwmake` only when `librdeFluidSolver.so` is missing or the solver sources are newer, runs `Allrun`, and opens the result in Windows ParaView. It stops at the first failure. If ParaView is not installed, the case written by `Allrun` stays on disk and the script prints the `\\wsl$\` path to open.
 
-| Task | What it does |
-| --- | --- |
-| **RDEsim: Prepare case** | Rewrites `cases/annulus2D` from `rdeConfig` |
-| **RDEsim: Build solver** | Sources the OpenFOAM 14 bashrc and runs `Allwmake` |
-| **RDEsim: Run annulus2D** | Sources that bashrc and runs `cases/annulus2D/Allrun` (`blockMesh`, then `foamRun`) |
-| **RDEsim: Open latest result in Windows ParaView** | Opens `cases/annulus2D/annulus2D.foam` in the Windows ParaView install |
+The same command from a WSL terminal is `./bin/rdesim-wsl simulate`.
 
-Use that order after you change `rdeConfig` or a fuel file. Build again only when the solver sources change. The same four actions from a WSL terminal are `./bin/rdesim-wsl prepare`, `build`, `run`, and `open`.
+Four separate tasks remain if you want one step only: **RDEsim: Prepare case**, **RDEsim: Build solver**, **RDEsim: Run annulus2D**, and **RDEsim: Open latest result in Windows ParaView**. From a terminal those are `./bin/rdesim-wsl prepare`, `build`, `run`, and `open`.
 
 The open task finds ParaView at `/mnt/c/Program Files/ParaView*/bin/paraview.exe` and opens:
 
@@ -21,7 +16,7 @@ The open task finds ParaView at `/mnt/c/Program Files/ParaView*/bin/paraview.exe
 
 `<distro>` comes from `$WSL_DISTRO_NAME` in the WSL terminal. You do not type the path. Colour **p** first, then **T**, **rho**, **U**, and **lambda**. **e** is there when the thermo model has written it. There is no separate detonation-indicator field.
 
-The checkout includes the initial directory `0/`. A result time folder exists only after **RDEsim: Run annulus2D** (`Allrun`) finishes. The open task stops with an error if that folder is not there yet, and it does not treat `0/` as a result. Build and run look for the OpenFOAM 14 bashrc at `/opt/openfoam14/etc/bashrc`, then `~/OpenFOAM/OpenFOAM-14/etc/bashrc`, and stop with an error if neither file exists.
+The checkout includes the initial directory `0/`. A result time folder exists only after `Allrun` finishes, which **RDEsim: Run and visualize** does for you. The separate open task stops with an error if that folder is not there yet, and it does not treat `0/` as a result. The script looks for the OpenFOAM 14 bashrc at `/opt/openfoam14/etc/bashrc`, then `~/OpenFOAM/OpenFOAM-14/etc/bashrc`, and stops if neither file exists.
 
 `paraFoam` inside WSL is optional and secondary. From `cases/annulus2D`, after `. /opt/openfoam14/etc/bashrc`, `paraFoam` uses the reader shipped with OpenFOAM. The Windows ParaView task is the one to use with ParaView installed on Windows.
 
@@ -29,7 +24,7 @@ RDEsim writes an OpenFOAM 14 case, checks that the selected model stays a hyperb
 
 This is not a production RDE code. The gas is one perfect gas with one progress variable. The fuel numbers are illustrative. Nothing here has been compared with a measured detonation speed, thrust, or wave count. See [What is not physically validated](#what-is-not-physically-validated).
 
-The checkout is an ordinary git tree. Clone it on the Ubuntu distro and open that Linux path in Cursor's WSL window. `.vscode/tasks.json` is only the four tasks above. The machine that prepared the tree does not share your WSL files.
+The checkout is an ordinary git tree. Clone it on the Ubuntu distro and open that Linux path in Cursor's WSL window. `.vscode/tasks.json` holds **RDEsim: Run and visualize** and the four single-step tasks. The machine that prepared the tree does not share your WSL files.
 
 ## Environment
 
@@ -218,7 +213,7 @@ The unit test drives the same loop with `tests/stub_solver.py` so it does not ne
 
 ## ParaView on Windows
 
-Use **RDEsim: Open latest result in Windows ParaView** after the run task. That task opens the case stub below in the ParaView installed on Windows. To open it yourself, File → Open and choose the same path. Replace `<distro>` with a name printed by `wsl.exe -l -q`. Replace `<you>` with the Ubuntu home directory:
+**RDEsim: Run and visualize** opens the case stub below in the ParaView installed on Windows after the run. The separate task **RDEsim: Open latest result in Windows ParaView** does only that open. To open it yourself, File → Open and choose the same path. Replace `<distro>` with a name printed by `wsl.exe -l -q`. Replace `<you>` with the Ubuntu home directory:
 
 ```text
 \\wsl$\<distro>\home\<you>\RDEsim\cases\annulus2D\annulus2D.foam

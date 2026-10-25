@@ -2,6 +2,24 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "RDEsim: Run and visualize",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/bin/rdesim-wsl",
+        "simulate"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "RDEsim: Prepare case",
       "type": "shell",
       "command": "bash",
