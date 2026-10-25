@@ -4,6 +4,7 @@ thermophysicalPredictor.C
 positivity.C
 hyperbolicity.C
 postSolve.C
+peakPressure.C
 acousticWallVelocityFvPatchVectorField.C
 
 LIB = $(FOAM_USER_LIBBIN)/librdeFluidSolver

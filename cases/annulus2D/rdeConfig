@@ -353,6 +353,14 @@ output
     writeControl        adjustableRunTime;
     writeInterval       1e-6;
     purgeWrite          0;
+    // Running maximum of p, and the time it occurred, for a soot-foil view.
+    // writeInterval here can differ from the flow-field interval above.
+    cellStructure
+    {
+        enabled         yes;
+        writeControl    adjustableRunTime;
+        writeInterval   1e-6;
+    }
     writeCompression    no;
     objectives
     (

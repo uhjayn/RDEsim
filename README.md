@@ -35,13 +35,13 @@ The same command from a WSL terminal is `./bin/rdesim-wsl simulate`.
 
 **RDEsim: Run and visualize (long)** runs `./bin/rdesim-wsl simulate --case cases/annulus2D-long`. That case is the same geometry and the same model as `cases/annulus2D`. Only the run window is longer, so a wave can move along the annulus. The short case stays the smoke test.
 
-Four separate tasks remain if you want one step only: **RDEsim: Prepare case**, **RDEsim: Build solver**, **RDEsim: Run annulus2D**, and **RDEsim: Open latest result in Windows ParaView**. From a terminal those are `./bin/rdesim-wsl prepare`, `build`, `run`, and `open`. `prepare`, `run`, and `open` take the same `--case` option. `build` and `test` do not.
+Four separate tasks remain if you want one step only: **RDEsim: Prepare case**, **RDEsim: Build solver**, **RDEsim: Run annulus2D**, and **RDEsim: Open latest result in Windows ParaView**. From a terminal those are `./bin/rdesim-wsl prepare`, `build`, `run`, and `open`. `prepare`, `run`, and `open` take the same `--case` option. `build` and `test` do not. **RDEsim: Cell structure view** runs `./bin/rdesim-wsl cells`.
 
 **RDEsim: Run tests** runs `./bin/rdesim-wsl test`. That sources the OpenFOAM 14 bashrc, runs `Allwmake`, runs `python3 -m unittest tests.test_rdesim`, then `blockMesh` and `foamRun` on `cases/annulus2D`. It removes an earlier result time folder first and keeps `0/`. It stops at the first failure and prints the time folder `foamRun` wrote. `sh tests/test_paraview_launch.sh` checks the ParaView launch messages with stub `powershell.exe` and `tasklist.exe`. It does not start a real ParaView.
 
 The scripts look for the OpenFOAM 14 bashrc at `/opt/openfoam14/etc/bashrc`, then `~/OpenFOAM/OpenFOAM-14/etc/bashrc`, and stop if neither file exists.
 
-The checkout is an ordinary git tree. Clone it on the Ubuntu distro and open that Linux path in Cursor's WSL window. `.vscode/tasks.json` holds **RDEsim: Run and visualize**, **RDEsim: Run and visualize (long)**, and the four single-step tasks. The machine that prepared the tree does not share your WSL files.
+The checkout is an ordinary git tree. Clone it on the Ubuntu distro and open that Linux path in Cursor's WSL window. `.vscode/tasks.json` holds **RDEsim: Run and visualize**, **RDEsim: Run and visualize (long)**, **RDEsim: Cell structure view**, and the four single-step tasks. The machine that prepared the tree does not share your WSL files.
 
 ## Environment
 
@@ -266,6 +266,16 @@ paraFoam
 
 `pvbatch paraview/view_rde.py cases/annulus2D` is the same kind of optional WSL path. It was not run here. There is no `.pvsm` state file, because those files embed absolute paths. The Windows `\\wsl.localhost\` path above is the manual fallback. This environment cannot start a real Windows ParaView; the launch text was checked with stub `powershell.exe` and `tasklist.exe` only.
 
+## Cell structure and mesh resolution
+
+`output.cellStructure` in `rdeConfig` sets the write control for a `peakPressure` function object. Each cell stores `pMax`, the running maximum of pressure, and `tAtPMax`, the time that maximum occurred. Change `writeControl` and `writeInterval` there if you want those fields on a different schedule from the flow fields.
+
+**RDEsim: Cell structure view** prints the mesh-resolution report and runs `pvbatch` on `paraview/cell_structure.py`. The script writes a grey image of `pMax` and a wireframe of the mesh to `postProcessing/cellStructure/`. If Windows `paraview.exe` is installed, the task uses `pvbatch.exe` beside it. Otherwise it uses `pvbatch` on `PATH`.
+
+The length in `constant/meshResolution` is the inlet sound speed divided by the one-step rate. It is not a ZND induction length and not a cell width from a detonation database. At the 2500 K kernel that length is 0.22 mm. The median axial edge on the example mesh is 2.6 mm, which is 0.086 cells across that length. The report warns that the grid is too coarse for detonation cells. A reactive Euler model with one progress variable tends to make weak or irregular cells even when the mesh is fine.
+
+The 5e-6 s smoke run wrote `pMax` and `tAtPMax` in each time folder. `pMax` runs from about 1.01e5 Pa to 6.52e5 Pa and stays high only inside the hot kernel, about `y` ≤ 0.033 m. Around the circumference it is two broad humps, not a repeated cell pattern. The grey image shows that same patch. It is a pressure history. It is not a measured cell size. Those images were rendered here with Linux `/usr/bin/pvbatch`. Windows `pvbatch.exe` was not run.
+
 ## Equations
 
 Default model, `flowModel euler`: the reactive Euler equations, a hyperbolic balance law. `u` is velocity, `rho` density, `p` pressure, `e` sensible internal energy, `lambda` the progress variable, `omega` the progress rate.
@@ -320,6 +330,7 @@ With that switch, `annulus2D-long` was continued from the healthy `2e-5` s field
 - One-step, single-gamma, perfect-gas kinetics. Not a detailed mechanism, and not a variable-gamma product gas.
 - Hydrogen and ethylene entries are starting numbers, not a calibrated detonation chemistry.
 - No comparison with Chapman–Jouguet speed, cell size, wave count, or thrust.
+- `pMax` is a pressure history. On the example mesh it is the kernel footprint, not a measured cell size. The chemical length in `constant/meshResolution` is inlet sound speed over the one-step rate.
 - The 2D unwrapped mesh does not resolve radial steps or the nozzle wall.
 - The 3D mesh does not resolve discrete injector slots.
 - Acoustics are lumped. Cavities are not meshed. The Helmholtz ODE is explicit Euler and is not a proven stable integrator for every `deltaT`.
