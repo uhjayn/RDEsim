@@ -8,6 +8,8 @@ The same command from a WSL terminal is `./bin/rdesim-wsl simulate`.
 
 **RDEsim: Run and visualize (long)** runs `./bin/rdesim-wsl simulate --case cases/annulus2D-long`. That case is the same geometry and the same model as `cases/annulus2D`. Only the run window is longer, so a wave can move along the annulus. The short case stays the smoke test.
 
+**RDEsim: Run validation** runs `./bin/rdesim-wsl validate`, the H2-air detonation-tube comparison, see [Validation](#validation-h2-air-detonation-tube). **RDEsim: Run validation (full, resolution study)** runs `validate-full`.
+
 Four separate tasks remain if you want one step only: **RDEsim: Prepare case**, **RDEsim: Build solver**, **RDEsim: Run annulus2D**, and **RDEsim: Open latest result in Windows ParaView**. From a terminal those are `./bin/rdesim-wsl prepare`, `build`, `run`, and `open`. `prepare`, `run`, and `open` take the same `--case` option. `build` and `test` do not.
 
 **RDEsim: Run tests** runs `./bin/rdesim-wsl test`. That sources the OpenFOAM 14 bashrc, runs `Allwmake`, runs `python3 -m unittest tests.test_rdesim`, then `blockMesh` and `foamRun` on `cases/annulus2D`. It removes an earlier result time folder first and keeps `0/`. It stops at the first failure and prints the time folder `foamRun` wrote.
@@ -95,6 +97,10 @@ This module was not compiled here.
 | `rdesim/` | Config reader, mesh, checks, optimization driver |
 | `applications/modules/rdeFluid/` | OpenFOAM 14 solver and acoustic wall condition |
 | `paraview/view_rde.py` | `pvbatch` script for the OpenFOAM reader |
+| `cases/detonationTubeH2/` | 1D H2-air validation: `validationConfig`, `referenceData` |
+| `fuels/hydrogen-air-validation/` | Hydrogen fuel calibrated to the reference, written by `rdesim.validation calibrate` |
+| `rdesim/validation.py`, `rdesim/detonation.py` | Validation driver and steady ZND/CJ theory |
+| `tools/validation_reference.py` | Regenerates `referenceData` with Cantera and CEA |
 | `cases/annulus2D/` | Example case. `python3 -m rdesim prepare` overwrites the generated dictionaries |
 
 Python is the standard library only. There is no install step.
@@ -290,11 +296,104 @@ Quarter-wave and groove reactive impedances are reported in `constant/acousticRe
 
 A hard wall is `|R| → 1` for a large real `Z`. A soft wall is `R = -1` at `Z = 0`. `Z = rho c` at normal incidence gives `R = 0`. The same `Z` at 60 degrees gives `R = -1/3`.
 
+## Validation: H2-air detonation tube
+
+`cases/detonationTubeH2` checks the solver and the one-step model against numbers computed from detailed chemistry for stoichiometric H2-air at 101325 Pa and 300 K, and calibrates the one-step fuel to them. It is a 1D tube, closed at one end, with a burnt-gas kernel that starts the wave.
+
+```sh
+./bin/rdesim-wsl validate         # about 10 minutes: build if needed, run calibrated-N10, print the table
+./bin/rdesim-wsl validate-full    # about 65 minutes: also original fuel, 5 and 20 cells per half-release length
+python3 -m rdesim.validation analytic   # theory only, a few seconds, no OpenFOAM
+python3 -m rdesim.validation compare    # print the table from saved results
+```
+
+The Cursor tasks are **RDEsim: Run validation** and **RDEsim: Run validation (full, resolution study)**. `validate` exits with status 1 when a gated row fails. Everything adjustable is in `cases/detonationTubeH2/validationConfig` (tube, kernel, numerics, runs, tolerance bands, calibration target). The run directories under `cases/detonationTubeH2/run/` are ignored by git. Runtimes are single-core on a 4-core Linux VM. `calibrated-N5`, `calibrated-N20` and `original-N10` were run at the same time as each other, so their times include some contention. A second, separate run of `validate` gave the same numbers to all printed digits in 579 s.
+
+### Reference data
+
+Written by `tools/validation_reference.py` to `cases/detonationTubeH2/referenceData`. Cantera 3.2, NASA CEA 3.3.4 and scipy are only needed to regenerate that file, not to run the validation.
+
+| Quantity | Value | Source |
+| --- | --- | --- |
+| CJ speed | 1969.0 m/s | Cantera, `gri30.yaml`, equilibrium CJ (minimum-speed tangency). NASA CEA 3.3.4 independently gives 1968.4 m/s. `h2o2.yaml` gives 1976.3 m/s |
+| CJ pressure, temperature | 15.49 atm, 2945 K | same Cantera calculation. CEA: 15.48 atm, 2942 K |
+| von Neumann state | 27.46 atm, 1532 K | frozen shock at D_CJ, Cantera |
+| ZND induction length | 0.2440 mm (max dT/dx), 0.2450 mm (max thermicity), `h2o2.yaml` 0.2318 mm | ZND ODE with the same mechanism, Cantera plus scipy. The induction time agrees with a constant-pressure reactor behind the von Neumann state: 0.6514 us against 0.6485 us |
+| Length to 50% and 90% heat release | 0.2734 mm, 0.8130 mm | same ZND profile, heat release from the formation-enthalpy sum |
+| Reduced activation energy Ea/(R T_vN) | 10.05 from induction time, 9.35 from the half-release time | shock-speed sensitivity of the ZND time, speeds D_CJ times 0.98 and 1.02 |
+| Detonation cell width | 8.0 to 15.1 mm | Shepherd detonation database (Kaneshige and Shepherd, GALCIT FM97-8), five H2-air entries at 100 to 101.3 kPa, 293 to 300 K, phi 1.0 to 1.02, listed with their papers in `referenceData` |
+
+Not verified, and not invented: a measured ZND induction length and a measured CJ pressure for this mixture. The induction length is a model result and depends on the mechanism (`gri30.yaml` and `h2o2.yaml` differ by 5 percent). The cell-width entries are measurements at slightly different conditions, so they are given as a range. The cell width is not computed here, because a 1D tube has no cells.
+
+### What was calibrated
+
+`fuels/hydrogen-air` is not edited. `python3 -m rdesim.validation calibrate --write` writes `fuels/hydrogen-air-validation/fuelDict` from it. Only three entries change, and the file records the original and the new value of each in a `calibration` block at its end.
+
+- `heatRelease.LHV` is set so that the CJ speed of the one-gamma gas equals 1969.0 m/s. This is closed form.
+- `chemistry.Ta` is set so that the reduced activation energy of the model's own ZND profile equals the target in `validationConfig` (5, see below).
+- `chemistry.A` is set so that the model's length to half heat release equals the reference 0.2734 mm.
+
+Nothing is hardcoded in C++ or Python. The heat release, activation temperature and pre-exponential factor are read from the fuel file by both the solver and the theory module `rdesim/detonation.py`.
+
+Why the half-release length and not the induction length: a first-order one-step model with a reduced activation energy below about 6.5 has no maximum of dT/dx behind the shock, so its induction length is not defined. The half-release length is defined for every case.
+
+Why the reduced activation energy is 5 and not the 9 to 10 of the real mixture: with this model and this solver, the 1D wave is not stable at the real value. At 10 cells per half-release length and 600 half-lengths of tube, one initiation kernel, a hand-run scan gave: Ea/(R T_vN) of 4 and 5 give a wave that travels at the CJ speed on average, 6 and 7 gallop with large pressure swings, 8 and 9.35 quench or fail. This is the known behaviour of one-step Arrhenius detonations. So the activation energy is a stability compromise and is not matched. To repeat the scan, set `calibration.reducedActivationEnergy` in `validationConfig`, run `calibrate --write` and `run`, then restore the fuel with `git checkout fuels/hydrogen-air-validation`.
+
+### Results
+
+Steady ZND/CJ theory of the one-step model, printed by `analytic` (no CFD). Error is against the Cantera `gri30` reference.
+
+| Quantity | Reference | Before (`hydrogen-air`) | After (`hydrogen-air-validation`) |
+| --- | --- | --- | --- |
+| CJ speed (m/s) | 1969.0 | 2626.6 (+33.4%) | 1969.0 (+0.0%) |
+| CJ pressure (atm) | 15.49 | 24.52 (+58.3%) | 13.96 (-9.9%) |
+| CJ temperature (K) | 2945 | 4365 (+48.2%) | 2518 (-14.5%) |
+| von Neumann pressure (atm) | 27.46 | 48.04 (+74.9%) | 26.92 (-2.0%) |
+| Length to 50% heat release (mm) | 0.2734 | 0.0966 (-64.7%) | 0.2734 (-0.0%) |
+| Induction length, max dT/dx (mm) | 0.2440 | 0.0307 (-87.4%) | 0.2123 (-13.0%, not a target) |
+| Length to 90% heat release (mm) | 0.8130 | 0.2740 (-66.3%) | 0.5805 (-28.6%) |
+| Ea/(R T_vN), half-release | 9.35 | 2.72 (-70.9%) | 5.00 (-46.5%) |
+
+CFD, `calibrated-N10`, the gated run: 15000 cells of 27.3 um, 410 mm tube, 10 cells per model half-release length, 154 us, 599 s. The wave speed is a least-squares fit of the shock position over the 60 to 95 percent part of the tube. The pressure and temperature are read at the sonic plane behind the shock (relative Mach number 1), the CJ point.
+
+| Quantity | Reference | CFD | Error | Band |
+| --- | --- | --- | --- | --- |
+| Wave speed (m/s) | 1969.0 | 1971.1 | +0.1% | 2% |
+| Pressure at sonic plane (atm) | 15.49 | 14.05 | -9.3% | 15% |
+| Temperature at sonic plane (K) | 2945 | 2560 | -13.1% | 20% |
+| Length to 50% heat release (mm) | 0.2734 | 0.3299 | +20.7% | 25% |
+
+The bands were chosen before the runs. They are a regression check, not a statement about physics. The pressure and temperature errors are the one-gamma limit shown in the theory table above (-9.9% and -14.5%). They cannot be removed by calibrating `A`, `Ta` and `LHV`, because the CJ speed and the CJ pressure cannot both be matched by one gamma.
+
+Resolution and fuel, `validate-full`, same tube and kernel:
+
+| Run | Cells | Wave speed (m/s) | p at sonic plane (atm) | T (K) | Half-release length (mm) | Runtime |
+| --- | --- | --- | --- | --- | --- | --- |
+| `calibrated-N5` | 7500 | 1981.5 (+0.6%) | 14.15 (-8.6%) | 2543 (-13.7%) | 0.367 (+34%, FAIL) | 168 s |
+| `calibrated-N10` | 15000 | 1971.1 (+0.1%) | 14.05 (-9.3%) | 2560 (-13.1%) | 0.330 (+21%) | 599 s |
+| `calibrated-N20` | 30000 | 1987.1 (+0.9%) | 14.46 (-6.6%) | 2526 (-14.2%) | 0.267 (-2.4%) | 2420 s |
+
+| `original-N10`, original fuel, 9.7 um cells | 15000 | 2640.3 (+34.1%) | 24.76 (+59.9%) | 4384 (+48.9%) | 0.112 (-59%) | 650 s |
+
+The original fuel is not a failure of the solver. The same table also prints a check against the model's own CJ theory: the original-fuel CFD wave is within 0.5% in speed, 1.0% in pressure and 0.4% in temperature of that theory, and the calibrated runs are within 0.6%, 1.4% and 1.6%. The solver reproduces the CJ state of the model it is given. The original numbers are simply far from H2-air.
+
+### What still does not match
+
+- Before calibration the original hydrogen entry gave a CJ speed 33% too high, a CJ pressure 58% too high, and a reaction zone 65% too short.
+- After calibration the wave speed matches by construction. The pressure (-9% to -10%) and temperature (-13% to -15%) at the CJ plane do not, and cannot with one gamma of 1.4. The real burnt gas has a lower effective gamma.
+- The reduced activation energy is 5 against 9.35. The wave in the CFD is not steady at this value. The shock speed between written frames ranges from about 1750 to 2400 m/s and the half-release length from 0.12 to 0.71 mm (median 0.33 mm, target 0.27 mm). A real H2-air detonation is also unstable, but this is not the same instability and nothing here says it is.
+- The reaction-zone tail is too short. 90 percent of the heat is released after 0.58 mm in the model, against 0.81 mm in the reference. A one-step first-order model has one rate for the whole zone, while the real one has a short induction zone and a longer recombination zone.
+- The model's heat release is 54 percent of the real lower heating value of the fuel (`LHV` 6.49e7 against 1.2e8 J/kg). It is an effective number that compensates for the single gamma, not a measured heat of reaction.
+- The result is not grid-converged. The median half-release length is +34%, +21% and -2.4% off at 5, 10 and 20 cells per half-release length, and the spread of the half-release length between frames grows with resolution (0.21 to 0.52 mm at 5, 0.12 to 0.71 mm at 10, 0.07 to 0.89 mm at 20). The finer mesh resolves a larger oscillation of the wave, so the 20-cell agreement of the median is not evidence of convergence. The average wave speed stays within 0.1% to 0.9% of the reference at all three resolutions, and the speed does not trend with resolution.
+- Cell width, the transverse structure, and the induction length itself (a target only through the half-release length) are not computed. The calibration is valid only for phi = 1, 300 K and 1 atm. The calibrated fuel has not been tested at another equivalence ratio, pressure or temperature, and nothing about the annulus cases is validated by it.
+
+A match to the reference at the calibration point is a fit. It does not show that the model predicts H2-air detonations at other conditions.
+
 ## What is not physically validated
 
 - One-step, single-gamma, perfect-gas kinetics. Not a detailed mechanism, and not a variable-gamma product gas.
 - Hydrogen and ethylene entries are starting numbers, not a calibrated detonation chemistry.
-- No comparison with Chapman–Jouguet speed, cell size, wave count, or thrust.
+- The 1D detonation tube in `cases/detonationTubeH2` compares the calibrated fuel with Chapman–Jouguet speed, pressure, temperature and half-release length for stoichiometric H2-air at 1 atm and 300 K, see [Validation](#validation-h2-air-detonation-tube). That is a calibration at one point. The annulus cases, cell size, wave count, thrust, other fuels and other conditions are not compared. The original `hydrogen-air` fuel numbers give a CJ speed 33% too high.
 - The 2D unwrapped mesh does not resolve radial steps or the nozzle wall.
 - The 3D mesh does not resolve discrete injector slots.
 - Acoustics are lumped. Cavities are not meshed. The Helmholtz ODE is explicit Euler and is not a proven stable integrator for every `deltaT`.

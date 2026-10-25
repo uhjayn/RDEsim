@@ -2,7 +2,7 @@
 
     python3 -m rdesim.validation analytic [--config PATH]
     python3 -m rdesim.validation calibrate [--write] [--config PATH]
-    python3 -m rdesim.validation run [--all | --runs NAME ...] [--config PATH]
+    python3 -m rdesim.validation run [--all | --runs NAME ...] [--measure-only] [--config PATH]
     python3 -m rdesim.validation compare [--config PATH]
 
 ``analytic`` and ``calibrate`` need only Python. ``run`` needs OpenFOAM 14 on
@@ -243,7 +243,7 @@ calibration
         A       {_six(result['A'])};
         Ta      {_six(result['Ta'])};
     }}
-    note            "LHV is q/Yf with q set by the CJ speed for one gamma. It is about half the true H2 lower heating value because dissociation is not in the model.";
+    note            "LHV is q/Yf with q set by the CJ speed for one gamma. It is an effective number, about half the real H2 lower heating value, that absorbs what one gamma of 1.4 cannot represent. It is not a heat of reaction.";
 }}
 """
     marker = "// ************************************************************************* //"
@@ -797,7 +797,7 @@ def measure(setup: Setup, run: dict, model: Model, out: Path, meta: dict) -> dic
     speed = sum((t - tm) * (x - xm) for t, x in zip(ts, xs)) / sum((t - tm) ** 2 for t in ts)
     local = [(xs[k + 1] - xs[k]) / (ts[k + 1] - ts[k]) for k in range(len(ts) - 1)]
 
-    sonic_p, sonic_T, vn_peak, mach_max, half_len = [], [], [], [], [], []
+    sonic_p, sonic_T, vn_peak, mach_max, half_len = [], [], [], [], []
     for f in window:
         name = f["name"]
         p = f["p"]
@@ -850,27 +850,42 @@ def measure(setup: Setup, run: dict, model: Model, out: Path, meta: dict) -> dic
     return out_dict
 
 
-def cmd_run(setup: Setup, names: list[str]) -> int:
-    _need_openfoam()
-    results = []
+def _clock_seconds(log: Path) -> float:
+    last = None
+    for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("ExecutionTime"):
+            last = line
+    if last is None:
+        return math.nan
+    return float(last.split("ClockTime =")[1].split()[0])
+
+
+def cmd_run(setup: Setup, names: list[str], measure_only: bool = False) -> int:
+    if not measure_only:
+        _need_openfoam()
     for name in names:
         run = _run_entry(setup, name)
         model = Model(setup, setup.fuel_name(str(run["fuel"])))
         out = setup.run_dir / name
-        meta = write_case(setup, run, model, out)
-        print(f"[{name}] fuel {model.fuel_name}: {meta['cells']} cells, dx {meta['dx']*1e6:.2f} um "
-              f"({meta['cellsPerHalfLength']} per half-release length {model.x_half*1e3:.4f} mm), "
-              f"tube {meta['length']*1e3:.2f} mm, end time {meta['endTime']*1e6:.2f} us")
-        shutil.rmtree(out / "constant" / "polyMesh", ignore_errors=True)
-        t_mesh = _run_logged(["blockMesh"], out, out / "log.blockMesh")
-        print(f"[{name}] blockMesh done ({t_mesh:.1f} s). Running foamRun, log {out / 'log.foamRun'}")
-        t_run = _run_logged(["foamRun"], out, out / "log.foamRun")
-        print(f"[{name}] foamRun done ({t_run:.1f} s)")
+        if measure_only:
+            meta_path = out / "validationCase.json"
+            if not meta_path.is_file():
+                raise ValidationError(f"{meta_path} is missing; run '{name}' first")
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            t_run = _clock_seconds(out / "log.foamRun")
+        else:
+            meta = write_case(setup, run, model, out)
+            print(f"[{name}] fuel {model.fuel_name}: {meta['cells']} cells, dx {meta['dx']*1e6:.2f} um "
+                  f"({meta['cellsPerHalfLength']} per half-release length {model.x_half*1e3:.4f} mm), "
+                  f"tube {meta['length']*1e3:.2f} mm, end time {meta['endTime']*1e6:.2f} us")
+            shutil.rmtree(out / "constant" / "polyMesh", ignore_errors=True)
+            t_mesh = _run_logged(["blockMesh"], out, out / "log.blockMesh")
+            print(f"[{name}] blockMesh done ({t_mesh:.1f} s). Running foamRun, log {out / 'log.foamRun'}")
+            t_run = _run_logged(["foamRun"], out, out / "log.foamRun")
+            print(f"[{name}] foamRun done ({t_run:.1f} s)")
         result = measure(setup, run, model, out, meta)
         result["runtime"] = t_run
-        result["gate"] = str(run.get("gate", "no")) == "yes"
         (out / "result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-        results.append(result)
     return 0
 
 
@@ -939,6 +954,19 @@ def cmd_compare(setup: Setup, names: list[str] | None = None) -> int:
               f"max relative Mach number behind the shock {r['machRelMax']:.3f}; "
               f"sonic plane found in {r['sonicFound']}/{r['fitFrames']} frames; "
               f"p spike behind shock {r['pVnPeak']/101325:.1f} atm (reference vN {ref['pvN']/101325:.1f} atm, not gated)")
+        own = Model(setup, r["fuel"])
+        own_rows = [
+            ("D", r["D"], own.cj["D"], "{:.1f} m/s"),
+            ("p", None if r["pSonic"] is None else r["pSonic"], own.cj["p"], "{:.2f} atm"),
+            ("T", r["TSonic"], own.cj["T"], "{:.0f} K"),
+        ]
+        parts = []
+        for label, cfd, theory, fmt in own_rows:
+            if cfd is None:
+                continue
+            scale = 1.0 / 101325.0 if "atm" in fmt else 1.0
+            parts.append(f"{label} {fmt.format(cfd * scale)} vs {fmt.format(theory * scale)} ({_pct(cfd, theory):+.1f}%)")
+        print("  solver check against the model's own CJ theory (not the reference): " + "; ".join(parts))
         if r["xHalfMin"] is not None:
             print(f"  half-release length over frames: {r['xHalfMin']*1e3:.4f} to {r['xHalfMax']*1e3:.4f} mm")
         print()
@@ -958,6 +986,7 @@ def main(argv: list[str] | None = None) -> int:
     run = sub.add_parser("run", help="Mesh, run foamRun, measure and print the table")
     run.add_argument("--all", action="store_true", help="Every run in validationConfig")
     run.add_argument("--runs", nargs="+", help="Run names")
+    run.add_argument("--measure-only", action="store_true", help="Re-measure results already on disk, no OpenFOAM")
     sub.add_parser("compare", help="Print the table from saved results")
     args = parser.parse_args(argv)
     try:
@@ -974,7 +1003,7 @@ def main(argv: list[str] | None = None) -> int:
             names = args.runs
         else:
             names = [str(n) for n in setup.raw["defaultRuns"]]
-        cmd_run(setup, names)
+        cmd_run(setup, names, args.measure_only)
         return cmd_compare(setup, names)
     except ValidationError as exc:
         print(f"validation: {exc}", file=sys.stderr)

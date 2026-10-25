@@ -2,6 +2,7 @@
 # Actions for the WSL Cursor tasks. Linux paths only.
 #   ./bin/rdesim-wsl simulate [--case cases/annulus2D-long]
 #   ./bin/rdesim-wsl prepare|build|run|open|test [--case PATH]
+#   ./bin/rdesim-wsl validate|validate-full
 # Edit the case rdeConfig and fuels/<name>/fuelDict. This script does
 # not change the physics. It does not call an agent or a remote API.
 
@@ -16,13 +17,15 @@ FOAM_FILE="$CASE/annulus2D.foam"
 
 usage() {
     echo "Usage: ./bin/rdesim-wsl simulate|prepare|run|open [--case PATH]" >&2
-    echo "       ./bin/rdesim-wsl build|test" >&2
+    echo "       ./bin/rdesim-wsl build|test|validate|validate-full" >&2
     echo "  simulate source OpenFOAM, prepare, build if needed, run, open ParaView" >&2
     echo "  prepare  write the case from its rdeConfig" >&2
     echo "  build    source OpenFOAM 14 and run Allwmake" >&2
     echo "  run      source OpenFOAM 14 and run the case Allrun" >&2
     echo "  open     start Windows ParaView on the latest result in the case" >&2
     echo "  test     Allwmake, unit tests, then blockMesh and foamRun on annulus2D" >&2
+    echo "  validate      H2-air detonation tube: build if needed, run calibrated-N10, print the comparison table" >&2
+    echo "  validate-full every run in cases/detonationTubeH2/validationConfig (resolution study, original fuel)" >&2
     echo "  --case   case directory, default cases/annulus2D" >&2
     echo "           example: ./bin/rdesim-wsl simulate --case cases/annulus2D-long" >&2
 }
@@ -431,6 +434,16 @@ cmd_test() {
     echo "$CASE_NAME wrote result time folder $time_name"
 }
 
+# H2-air detonation-tube validation against Cantera/CEA reference data. The
+# runs, tolerances and fuels are in cases/detonationTubeH2/validationConfig.
+# Exit status 1 when a gated row of the comparison table fails.
+cmd_validate() {
+    cd "$ROOT"
+    source_openfoam
+    cmd_build_if_needed
+    python3 -u -m rdesim.validation run "$@"
+}
+
 # One entry point: source, prepare, build only if needed, run, then open.
 # Each step stops the script on failure. A missing ParaView does not delete
 # the case that Allrun just wrote.
@@ -479,7 +492,7 @@ case "$COMMAND" in
     simulate|prepare|run|open)
         select_case "${CASE_OPT:-cases/annulus2D}"
         ;;
-    build|test)
+    build|test|validate|validate-full)
         if [ -n "$CASE_OPT" ]; then
             die "--case cannot be used with $COMMAND. The smoke case is cases/annulus2D."
         fi
@@ -497,4 +510,6 @@ case "$COMMAND" in
     run) cmd_run ;;
     open) cmd_open ;;
     test) cmd_test ;;
+    validate) cmd_validate ;;
+    validate-full) cmd_validate --all ;;
 esac

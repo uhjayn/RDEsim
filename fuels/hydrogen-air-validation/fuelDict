@@ -103,7 +103,7 @@ calibration
         A       3.00173e+08;
         Ta      10478.8;
     }
-    note            "LHV is q/Yf with q set by the CJ speed for one gamma. It is about half the true H2 lower heating value because dissociation is not in the model.";
+    note            "LHV is q/Yf with q set by the CJ speed for one gamma. It is an effective number, about half the real H2 lower heating value, that absorbs what one gamma of 1.4 cannot represent. It is not a heat of reaction.";
 }
 
 // ************************************************************************* //
