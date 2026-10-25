@@ -1,0 +1,10 @@
+Mesh resolution
+  cells                 46800
+  circumferential edge  min 2.18166e-05 m  median 2.18166e-05 m  max 2.18166e-05 m
+  axial edge            min 2.15385e-05 m  median 2.15385e-05 m  max 2.15385e-05 m
+  One-step chemical length uses the inlet sound speed 408.627 m/s times 1/rate.
+  This is not a ZND induction length and not a measured cell width.
+  kernel temperature 2500 K: chemical length 0.000223103 m, 10.4 axial cells, 10.2 circumferential cells.
+  ignition temperature 1200 K: chemical length 0.017 m, 789 axial cells, 779 circumferential cells.
+  The estimate meets 10 cells across the chemical length in both in-plane directions. That does not validate a cell size.
+  A reactive Euler model with one progress variable does not produce a validated soot foil. Read pMax as a pressure history, not as a cell width.

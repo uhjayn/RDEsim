@@ -86,6 +86,17 @@ functions
         cellZone        all;
         fields          (lambda);
     }
+    peakPressure
+    {
+        type            peakPressure;
+        libs            ("librdeFluidSolver.so");
+        enabled         yes;
+        executeAtStart  no;
+        executeControl  timeStep;
+        executeInterval 1;
+        writeControl    adjustableRunTime;
+        writeInterval   5e-07;
+    }
 }
 
 // ************************************************************************* //

@@ -318,6 +318,8 @@ class CaseTests(unittest.TestCase):
             control = (case / "system" / "controlDict").read_text(encoding="utf-8")
             self.assertIn("startFrom       latestTime;", control)
             self.assertIn("endTime         3e-06;", control)
+            self.assertIn("type            peakPressure;", control)
+            self.assertIn("writeInterval   5e-07;", control)
 
 
 class OptimizerTests(unittest.TestCase):
