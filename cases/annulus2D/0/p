@@ -1,0 +1,61 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  14
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      p;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [pressure];
+
+internalField   uniform 101325;
+
+boundaryField
+{
+    front
+    {
+        type            empty;
+    }
+    back
+    {
+        type            empty;
+    }
+    injector
+    {
+        type            zeroGradient;
+    }
+    injectorSide
+    {
+        type            zeroGradient;
+    }
+    periodicLeft
+    {
+        type            cyclic;
+    }
+    outlet
+    {
+        type            waveTransmissive;
+        gamma           1.4;
+        fieldInf        101325;
+        lInf            0.12;
+        value           uniform 101325;
+    }
+    inletWall
+    {
+        type            zeroGradient;
+    }
+    periodicRight
+    {
+        type            cyclic;
+    }
+}
+
+// ************************************************************************* //

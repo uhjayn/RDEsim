@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+cases/**/optimization/
+cases/**/.tmp-*
+**/constant/polyMesh/
+**/postProcessing/
+**/processor*
+**/log.*
+applications/modules/rdeFluid/linux*
+applications/modules/rdeFluid/lnInclude/
+*.o

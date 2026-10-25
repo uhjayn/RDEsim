@@ -1,0 +1,9 @@
+Hyperbolicity: hyperbolic
+  gamma                 1.4
+  density               0.84955338 kg/m^3
+  pressure              101325 Pa
+  temperature           300 K
+  c^2                   166975.97 m^2/s^2
+  flux scheme           Kurganov
+  flow model            euler
+The selected equation of state, source, and scheme satisfy the checks.

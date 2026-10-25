@@ -1,0 +1,8 @@
+rdeFluid.C
+progress.C
+thermophysicalPredictor.C
+hyperbolicity.C
+postSolve.C
+acousticWallVelocityFvPatchVectorField.C
+
+LIB = $(FOAM_USER_LIBBIN)/librdeFluidSolver

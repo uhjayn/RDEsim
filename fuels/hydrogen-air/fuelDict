@@ -1,0 +1,78 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  14
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      fuelDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Illustrative hydrogen-air library entry. These numbers are a starting
+// point for the one-step model. They are not a validated detonation mechanism.
+
+fuel
+{
+    name        H2;
+    molWeight   0.002016;
+}
+
+oxidizer
+{
+    oxygenMoleFraction  0.21;
+    species
+    (
+        { name O2; molWeight 0.031998; moleFraction 0.21; }
+        { name N2; molWeight 0.028014; moleFraction 0.79; }
+    );
+}
+
+stoichiometry
+{
+    // 2 H2 + O2 -> products, with N2 carried in the oxidizer mixture.
+    nuFuel      2;
+    nuOxygen    1;
+}
+
+heatRelease
+{
+    // Lower heating value of the fuel, J/kg of fuel.
+    LHV         1.2e8;
+}
+
+thermo
+{
+    model               hConst;
+    equationOfState     perfectGas;
+    composition         frozenReactants;
+    gamma               1.4;
+    hf                  0;
+    productMolWeight    0.024;
+    productGamma        1.24;
+}
+
+transport
+{
+    // Used only when numerics.flowModel is navierStokes.
+    mu              1.8e-5;
+    Pr              0.7;
+}
+
+chemistry
+{
+    model                   oneStepProgress;
+    A                       1.0e8;
+    beta                    0;
+    Ta                      10000;
+    TRef                    300;
+    TFloor                  200;
+    ignitionTemperature     1200;
+    lambdaMin               0;
+    lambdaMax               1;
+}
+
+// ************************************************************************* //

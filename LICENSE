@@ -1,0 +1,10 @@
+RDEsim is free software under the GNU General Public License,
+version 3 or any later version (GPL-3.0-or-later).
+
+The OpenFOAM solver module links the OpenFOAM Foundation libraries, which
+are themselves GPL-3.0-or-later. That license covers the combined work.
+The GPL text is the license published by the Free Software Foundation:
+https://www.gnu.org/licenses/gpl-3.0.html
+
+The Python configuration tools are under the same license so the repository
+stays one work.

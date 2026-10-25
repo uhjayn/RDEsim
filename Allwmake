@@ -1,0 +1,8 @@
+#!/bin/sh
+cd "$(dirname "$0")" || exit 1
+if [ -z "${WM_PROJECT_DIR:-}" ]; then
+    echo "Source the OpenFOAM 14 bashrc before building, for example:" >&2
+    echo "  . /opt/openfoam14/etc/bashrc" >&2
+    exit 1
+fi
+wmake -s libso applications/modules/rdeFluid
