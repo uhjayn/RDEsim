@@ -11,7 +11,7 @@
 #include "rdeFluid.H"
 #include "fvcDdt.H"
 #include "fvcDiv.H"
-#include "fvcInterpolate.H"
+#include "surfaceInterpolate.H"
 #include "fvmDdt.H"
 
 void Foam::solvers::rdeFluid::thermophysicalPredictor()

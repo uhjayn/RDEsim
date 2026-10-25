@@ -9,7 +9,7 @@
 
 #include "rdeFluid.H"
 #include "fvcDiv.H"
-#include "fvcInterpolate.H"
+#include "surfaceInterpolate.H"
 #include "fvmDdt.H"
 #include "fvmSup.H"
 
