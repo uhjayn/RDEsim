@@ -20,6 +20,26 @@
       "problemMatcher": []
     },
     {
+      "label": "RDEsim: Run and visualize (long)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/bin/rdesim-wsl",
+        "simulate",
+        "--case",
+        "cases/annulus2D-long"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "RDEsim: Prepare case",
       "type": "shell",
       "command": "bash",

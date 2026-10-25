@@ -1,8 +1,8 @@
 #!/bin/sh
 # Actions for the WSL Cursor tasks. Linux paths only.
-#   ./bin/rdesim-wsl simulate
-#   ./bin/rdesim-wsl prepare|build|run|open|test
-# Edit cases/annulus2D/rdeConfig and fuels/<name>/fuelDict. This script does
+#   ./bin/rdesim-wsl simulate [--case cases/annulus2D-long]
+#   ./bin/rdesim-wsl prepare|build|run|open|test [--case PATH]
+# Edit the case rdeConfig and fuels/<name>/fuelDict. This script does
 # not change the physics. It does not call an agent or a remote API.
 
 set -eu
@@ -10,16 +10,41 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 CASE="$ROOT/cases/annulus2D"
 CONFIG="$CASE/rdeConfig"
+CASE_NAME="annulus2D"
+CASE_REL="cases/annulus2D"
 FOAM_FILE="$CASE/annulus2D.foam"
 
 usage() {
-    echo "Usage: ./bin/rdesim-wsl simulate|prepare|build|run|open|test" >&2
+    echo "Usage: ./bin/rdesim-wsl simulate|prepare|run|open [--case PATH]" >&2
+    echo "       ./bin/rdesim-wsl build|test" >&2
     echo "  simulate source OpenFOAM, prepare, build if needed, run, open ParaView" >&2
-    echo "  prepare  write the annulus2D case from rdeConfig" >&2
+    echo "  prepare  write the case from its rdeConfig" >&2
     echo "  build    source OpenFOAM 14 and run Allwmake" >&2
-    echo "  run      source OpenFOAM 14 and run cases/annulus2D/Allrun" >&2
-    echo "  open     start Windows ParaView on the latest annulus2D result" >&2
+    echo "  run      source OpenFOAM 14 and run the case Allrun" >&2
+    echo "  open     start Windows ParaView on the latest result in the case" >&2
     echo "  test     Allwmake, unit tests, then blockMesh and foamRun on annulus2D" >&2
+    echo "  --case   case directory, default cases/annulus2D" >&2
+    echo "           example: ./bin/rdesim-wsl simulate --case cases/annulus2D-long" >&2
+}
+
+# Point CASE, CONFIG, and the .foam stub at one case directory.
+select_case() {
+    rel="$1"
+    case "$rel" in
+        /*) CASE="$rel" ;;
+        *) CASE="$ROOT/$rel" ;;
+    esac
+    CASE="${CASE%/}"
+    if [ ! -f "$CASE/rdeConfig" ]; then
+        die "No rdeConfig in $CASE. --case is a case directory such as cases/annulus2D or cases/annulus2D-long."
+    fi
+    CONFIG="$CASE/rdeConfig"
+    CASE_NAME="$(basename "$CASE")"
+    FOAM_FILE="$CASE/${CASE_NAME}.foam"
+    case "$CASE" in
+        "$ROOT"/*) CASE_REL="${CASE#"$ROOT"/}" ;;
+        *) CASE_REL="$CASE" ;;
+    esac
 }
 
 die() {
@@ -228,7 +253,7 @@ cmd_run() {
 
 how_to_open_result() {
     time_name="$1"
-    echo "The annulus2D result is still on disk."
+    echo "The $CASE_NAME result is still on disk."
     echo "Latest result time folder: $CASE/$time_name"
     echo "If paraview.exe starts and no window appears, reinstall ParaView on Windows."
     echo "In ParaView, choose File → Open and paste this path:"
@@ -237,7 +262,7 @@ how_to_open_result() {
         echo "If that path does not open, paste this one instead:"
         wsl_unc '\\wsl$' "$FOAM_FILE"
     else
-        echo "\\\\wsl.localhost\\<distro>\\${FOAM_FILE#/}" | sed 's|/|\\|g'
+        printf '%s\n' "\\\\wsl.localhost\\<distro>\\${FOAM_FILE#/}" | sed 's|/|\\|g'
         echo "Replace <distro> with the name from wsl.exe -l -q. WSL_DISTRO_NAME is not set in this shell."
     fi
     echo "Colour p, then T, rho, U, and lambda. Step the time slider to $time_name."
@@ -253,7 +278,7 @@ start_paraview_detached() {
     case_ps="$(printf '%s' "$case_win" | sed "s/'/''/g")"
     plain="Start-Process -FilePath '${exe_ps}' -ArgumentList '${case_ps}'"
     if command -v powershell.exe >/dev/null 2>&1; then
-        echo "Command: powershell.exe -NoProfile -Command \"${plain}\""
+        printf '%s\n' "Command: powershell.exe -NoProfile -Command \"${plain}\""
         # UTF-16LE base64 is powershell -EncodedCommand. It keeps spaces in
         # "Program Files" and backslashes in the \\wsl$\ path intact.
         encoded="$(printf '%s' "$plain" | iconv -f UTF-8 -t UTF-16LE | base64 -w 0)"
@@ -268,7 +293,7 @@ start_paraview_detached() {
         bat="$(mktemp --suffix=.cmd)"
         printf 'start "" "%s" "%s"\r\n' "$exe_win" "$case_win" >"$bat"
         bat_win="$(to_windows_path "$bat")"
-        echo "Command: cmd.exe /c start \"\" \"${exe_win}\" \"${case_win}\""
+        printf '%s\n' "Command: cmd.exe /c start \"\" \"${exe_win}\" \"${case_win}\""
         set +e
         cmd.exe /c "$bat_win" </dev/null
         code=$?
@@ -312,7 +337,7 @@ launch_windows_paraview() {
     exe_win="$(to_windows_path "$paraview")"
     echo "Latest result time folder: $CASE/$time_name"
     echo "ParaView executable: $paraview"
-    echo "Windows executable path: $exe_win"
+    printf '%s\n' "Windows executable path: $exe_win"
 
     paths="$(case_windows_paths "$FOAM_FILE")"
     if [ -z "$paths" ]; then
@@ -325,7 +350,7 @@ launch_windows_paraview() {
     # The here-document keeps this loop in the current shell so `found` is visible.
     while IFS= read -r case_win; do
         [ -n "$case_win" ] || continue
-        echo "Opening $case_win"
+        printf '%s\n' "Opening $case_win"
         if ! start_paraview_detached "$exe_win" "$case_win"; then
             echo "Windows ParaView was not started." >&2
             how_to_open_result "$time_name" >&2
@@ -356,14 +381,14 @@ EOF
 
 cmd_open() {
     if ! time_name="$(latest_result_time "$CASE")"; then
-        die "No result time folder in cases/annulus2D yet. The initial 0/ directory is not a result. Run the Cursor task \"RDEsim: Run annulus2D\" (./bin/rdesim-wsl run) and wait for Allrun to finish."
+        die "No result time folder in $CASE yet. The initial 0/ directory is not a result. Run ./bin/rdesim-wsl run --case $CASE_REL and wait for Allrun to finish."
     fi
     launch_windows_paraview "$time_name" || exit 1
 }
 
 cmd_open_result() {
     if ! time_name="$(latest_result_time "$CASE")"; then
-        die "Allrun finished but no result time folder was written in cases/annulus2D. The initial 0/ directory is not a result."
+        die "Allrun finished but no result time folder was written in $CASE. The initial 0/ directory is not a result."
     fi
     launch_windows_paraview "$time_name" || exit 1
 }
@@ -393,6 +418,7 @@ PY
 # are removed so the folder foamRun writes is from this test.
 cmd_test() {
     cd "$ROOT"
+    select_case "cases/annulus2D"
     source_openfoam
     ./Allwmake
     python3 -m unittest tests.test_rdesim
@@ -400,9 +426,9 @@ cmd_test() {
     clear_result_times "$CASE"
     (cd "$CASE" && blockMesh && foamRun)
     if ! time_name="$(latest_result_time "$CASE")"; then
-        die "foamRun finished but no result time folder was written in cases/annulus2D. The initial 0/ directory is not a result."
+        die "foamRun finished but no result time folder was written in $CASE. The initial 0/ directory is not a result."
     fi
-    echo "annulus2D wrote result time folder $time_name"
+    echo "$CASE_NAME wrote result time folder $time_name"
 }
 
 # One entry point: source, prepare, build only if needed, run, then open.
@@ -417,20 +443,58 @@ cmd_simulate() {
     cmd_open_result
 }
 
-if [ "$#" -ne 1 ]; then
+COMMAND=""
+CASE_OPT=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --case)
+            shift
+            if [ "$#" -lt 1 ]; then
+                die "--case needs a case directory, for example cases/annulus2D-long."
+            fi
+            CASE_OPT="$1"
+            ;;
+        --case=*)
+            CASE_OPT="${1#--case=}"
+            ;;
+        -*)
+            die "Unknown option $1. Use --case PATH with simulate, prepare, run, or open."
+            ;;
+        *)
+            if [ -n "$COMMAND" ]; then
+                die "Unexpected argument $1"
+            fi
+            COMMAND="$1"
+            ;;
+    esac
+    shift
+done
+
+if [ -z "$COMMAND" ]; then
     usage
     exit 1
 fi
 
-case "$1" in
+case "$COMMAND" in
+    simulate|prepare|run|open)
+        select_case "${CASE_OPT:-cases/annulus2D}"
+        ;;
+    build|test)
+        if [ -n "$CASE_OPT" ]; then
+            die "--case cannot be used with $COMMAND. The smoke case is cases/annulus2D."
+        fi
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac
+
+case "$COMMAND" in
     simulate) cmd_simulate ;;
     prepare) cmd_prepare ;;
     build) cmd_build ;;
     run) cmd_run ;;
     open) cmd_open ;;
     test) cmd_test ;;
-    *)
-        usage
-        exit 1
-        ;;
 esac

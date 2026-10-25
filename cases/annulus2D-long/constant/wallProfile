@@ -1,0 +1,33 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  14
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      wallProfile;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+unwrapRadius            0.045;
+circumferentialLength   0.0235619449019;
+injectorArea            8e-05;
+recessDepth             0.002;
+stations
+(
+    (0 0.04 0.05 0.04 0.04 0.05)
+    (0.04 0.04 0.048 0.09 0.04 0.048)
+    (0.09 0.04 0.048 0.105 0.042 0.048)
+    (0.105 0.042 0.048 0.12 0.038 0.048)
+);
+stepFaces
+(
+    { side outer; location 0.04; r0 0.048; r1 0.05; }
+);
+
+// ************************************************************************* //

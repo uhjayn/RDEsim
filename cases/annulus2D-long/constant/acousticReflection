@@ -1,0 +1,31 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  14
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      acousticReflection;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+ZReal              138.126752208;
+ZImag              -500.336555309;
+RReal              0.306490124678;
+RImag              -0.715031289298;
+magnitude          0.777949832059;
+phaseDeg           -66.79815042;
+absorption         0.3947940588;
+timeDomainModel    helmholtz;
+inertia            0.0022768030574;
+resistance         17.3575196001;
+stiffness          8913012.5175;
+porosity           0.125663706144;
+warning            "";
+
+// ************************************************************************* //
