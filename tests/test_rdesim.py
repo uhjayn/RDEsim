@@ -359,6 +359,20 @@ def _raw_text(raw) -> str:
     return render_entries(raw)
 
 
+class ParaViewLaunchTests(unittest.TestCase):
+    def test_windows_launch_uses_tasklist(self):
+        script = ROOT / "tests" / "test_paraview_launch.sh"
+        result = subprocess.run(
+            ["sh", str(script)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            self.fail(result.stdout + result.stderr)
+
+
 def tearDownModule():
     for name in (".tmp-rdeConfig", ".tmp-broken"):
         path = ROOT / "cases" / "annulus2D" / name

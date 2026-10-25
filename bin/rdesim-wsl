@@ -18,7 +18,7 @@ usage() {
     echo "  prepare  write the annulus2D case from rdeConfig" >&2
     echo "  build    source OpenFOAM 14 and run Allwmake" >&2
     echo "  run      source OpenFOAM 14 and run cases/annulus2D/Allrun" >&2
-    echo "  open     open the latest result in Windows ParaView" >&2
+    echo "  open     start Windows ParaView on the latest annulus2D result" >&2
     echo "  test     Allwmake, unit tests, then blockMesh and foamRun on annulus2D" >&2
 }
 
@@ -82,12 +82,33 @@ print(best[1])
 PY
 }
 
+# Linux path of paraview.exe. RDESIM_PARAVIEW_EXE wins when it points at a file.
+# Otherwise the highest version under Program Files, Program Files (x86), or a
+# per-user AppData\Local install. An unmatched glob is not a file, so -f rejects it.
 windows_paraview() {
-    # The space in "Program Files" is part of the path. A missing install
-    # leaves the unmatched pattern, and the -f test rejects it.
+    if [ -n "${RDESIM_PARAVIEW_EXE:-}" ]; then
+        if [ -f "$RDESIM_PARAVIEW_EXE" ]; then
+            printf '%s\n' "$RDESIM_PARAVIEW_EXE"
+            return 0
+        fi
+        if command -v wslpath >/dev/null 2>&1; then
+            unix_exe="$(wslpath -u "$RDESIM_PARAVIEW_EXE" 2>/dev/null || true)"
+            if [ -n "$unix_exe" ] && [ -f "$unix_exe" ]; then
+                printf '%s\n' "$unix_exe"
+                return 0
+            fi
+        fi
+        die "RDESIM_PARAVIEW_EXE is set but that file was not found: $RDESIM_PARAVIEW_EXE"
+    fi
+
     set --
     # shellcheck disable=SC2086
-    for candidate in "/mnt/c/Program Files"/ParaView*/bin/paraview.exe; do
+    for candidate in \
+        "/mnt/c/Program Files"/ParaView*/bin/paraview.exe \
+        "/mnt/c/Program Files (x86)"/ParaView*/bin/paraview.exe \
+        /mnt/c/Users/*/AppData/Local/ParaView*/bin/paraview.exe \
+        /mnt/c/Users/*/AppData/Local/Programs/ParaView*/bin/paraview.exe
+    do
         if [ -f "$candidate" ]; then
             set -- "$@" "$candidate"
         fi
@@ -95,12 +116,18 @@ windows_paraview() {
     if [ "$#" -eq 0 ]; then
         return 1
     fi
-    # Highest version sort wins when more than one ParaView is installed.
     printf '%s\n' "$@" | sort -V | tail -n 1
 }
 
 paraview_missing_message() {
-    echo "Windows ParaView was not found under /mnt/c/Program Files/ParaView*/bin/paraview.exe. Install ParaView on Windows. /mnt/c must be the Windows C: drive." >&2
+    cat >&2 <<'EOF'
+Windows ParaView was not found. Set RDESIM_PARAVIEW_EXE to the full path of paraview.exe, or install ParaView where one of these globs matches:
+  /mnt/c/Program Files/ParaView*/bin/paraview.exe
+  /mnt/c/Program Files (x86)/ParaView*/bin/paraview.exe
+  /mnt/c/Users/*/AppData/Local/ParaView*/bin/paraview.exe
+  /mnt/c/Users/*/AppData/Local/Programs/ParaView*/bin/paraview.exe
+/mnt/c must be the Windows C: drive. A name such as "ParaView 6.2.0" matches ParaView*.
+EOF
 }
 
 solver_library() {
@@ -118,10 +145,12 @@ solver_needs_build() {
         -newer "$library" -print -quit | grep -q .
 }
 
+# \\wsl.localhost\<distro>\<linux path> or \\wsl$\<distro>\<linux path>
 wsl_unc() {
-    linux_path="$1"
+    prefix="$1"
+    linux_path="$2"
     if [ -z "${WSL_DISTRO_NAME:-}" ]; then
-        die "WSL_DISTRO_NAME is not set, so the \\\\wsl\$\\ path cannot be built. Run this from the Ubuntu distro in WSL, including Cursor's WSL window."
+        die "WSL_DISTRO_NAME is not set, so the Windows case path cannot be built. Run this from the Ubuntu distro in WSL, including Cursor's WSL window."
     fi
     case "$linux_path" in
         /*) ;;
@@ -129,7 +158,31 @@ wsl_unc() {
     esac
     relative="${linux_path#/}"
     relative_win="$(printf '%s' "$relative" | sed 's|/|\\|g')"
-    printf '\\\\wsl$\\%s\\%s\n' "$WSL_DISTRO_NAME" "$relative_win"
+    printf '%s\n' "${prefix}\\${WSL_DISTRO_NAME}\\${relative_win}"
+}
+
+to_windows_path() {
+    linux_path="$1"
+    if ! command -v wslpath >/dev/null 2>&1; then
+        die "wslpath was not found, so the Linux path cannot be converted for Windows: $linux_path"
+    fi
+    wslpath -w "$linux_path"
+}
+
+# One Windows path per line. wslpath -w first, then \\wsl.localhost\, then \\wsl$\.
+case_windows_paths() {
+    linux_path="$1"
+    converted=""
+    if command -v wslpath >/dev/null 2>&1; then
+        converted="$(wslpath -w "$linux_path" 2>/dev/null || true)"
+    fi
+    if [ -n "$converted" ]; then
+        printf '%s\n' "$converted"
+    fi
+    if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+        wsl_unc '\\wsl.localhost' "$linux_path"
+        wsl_unc '\\wsl$' "$linux_path"
+    fi
 }
 
 cmd_prepare() {
@@ -173,76 +226,146 @@ cmd_run() {
     (cd "$CASE" && ./Allrun)
 }
 
-cmd_open() {
-    if [ ! -f "$FOAM_FILE" ]; then
-        die "Missing $FOAM_FILE. Run the Cursor task \"RDEsim: Prepare case\" first."
-    fi
-    if ! time_name="$(latest_result_time "$CASE")"; then
-        die "No result time folder in cases/annulus2D yet. The initial 0/ directory is not a result. Run the Cursor task \"RDEsim: Run annulus2D\" (./bin/rdesim-wsl run) and wait for Allrun to finish."
-    fi
-    if ! paraview="$(windows_paraview)"; then
-        paraview_missing_message
-        exit 1
-    fi
-    unc="$(wsl_unc "$FOAM_FILE")"
-    echo "Latest result time folder: $CASE/$time_name"
-    echo "Opening $unc"
-    echo "ParaView: $paraview"
-    log="${TMPDIR:-/tmp}/rdesim-paraview.log"
-    # Detach so the Cursor task returns. ParaView stays open on Windows.
-    "$paraview" "$unc" >"$log" 2>&1 &
-    pid=$!
-    sleep 1
-    if ! kill -0 "$pid" 2>/dev/null; then
-        echo "ParaView exited immediately. Output:" >&2
-        cat "$log" >&2
-        die "Windows ParaView did not stay open. The path was $unc"
-    fi
-    echo "ParaView is running (pid $pid). Colour p, then T, rho, U, and lambda."
-    echo "Step the time slider to $time_name. That folder exists only after Allrun."
-}
-
 how_to_open_result() {
     time_name="$1"
     echo "The annulus2D result is still on disk."
     echo "Latest result time folder: $CASE/$time_name"
-    echo "In Windows ParaView, choose File → Open and select:"
+    echo "If paraview.exe starts and no window appears, reinstall ParaView on Windows."
+    echo "In ParaView, choose File → Open and paste this path:"
     if [ -n "${WSL_DISTRO_NAME:-}" ]; then
-        wsl_unc "$FOAM_FILE"
+        wsl_unc '\\wsl.localhost' "$FOAM_FILE"
+        echo "If that path does not open, paste this one instead:"
+        wsl_unc '\\wsl$' "$FOAM_FILE"
     else
-        echo "\\\\wsl\$\\<distro>\\${FOAM_FILE#/}" | sed 's|/|\\|g'
+        echo "\\\\wsl.localhost\\<distro>\\${FOAM_FILE#/}" | sed 's|/|\\|g'
         echo "Replace <distro> with the name from wsl.exe -l -q. WSL_DISTRO_NAME is not set in this shell."
     fi
     echo "Colour p, then T, rho, U, and lambda. Step the time slider to $time_name."
+}
+
+# powershell Start-Process detaches in the Windows session. A direct
+# paraview.exe launch from this shell only creates a WSL interop pid.
+# The plain command is printed; EncodedCommand keeps spaces and backslashes.
+start_paraview_detached() {
+    exe_win="$1"
+    case_win="$2"
+    exe_ps="$(printf '%s' "$exe_win" | sed "s/'/''/g")"
+    case_ps="$(printf '%s' "$case_win" | sed "s/'/''/g")"
+    plain="Start-Process -FilePath '${exe_ps}' -ArgumentList '${case_ps}'"
+    if command -v powershell.exe >/dev/null 2>&1; then
+        echo "Command: powershell.exe -NoProfile -Command \"${plain}\""
+        # UTF-16LE base64 is powershell -EncodedCommand. It keeps spaces in
+        # "Program Files" and backslashes in the \\wsl$\ path intact.
+        encoded="$(printf '%s' "$plain" | iconv -f UTF-8 -t UTF-16LE | base64 -w 0)"
+        set +e
+        powershell.exe -NoProfile -EncodedCommand "$encoded" </dev/null
+        code=$?
+        set -e
+        echo "Exit code: $code"
+        return 0
+    fi
+    if command -v cmd.exe >/dev/null 2>&1; then
+        bat="$(mktemp --suffix=.cmd)"
+        printf 'start "" "%s" "%s"\r\n' "$exe_win" "$case_win" >"$bat"
+        bat_win="$(to_windows_path "$bat")"
+        echo "Command: cmd.exe /c start \"\" \"${exe_win}\" \"${case_win}\""
+        set +e
+        cmd.exe /c "$bat_win" </dev/null
+        code=$?
+        set -e
+        rm -f "$bat"
+        echo "Exit code: $code"
+        return 0
+    fi
+    echo "powershell.exe and cmd.exe were not found. ParaView was not started." >&2
+    return 127
+}
+
+# Prints tasklist output. Returns 0 when Windows lists paraview.exe.
+windows_paraview_listed() {
+    if ! command -v tasklist.exe >/dev/null 2>&1; then
+        echo "tasklist.exe was not found, so the Windows process was not checked."
+        return 2
+    fi
+    set +e
+    listing="$(tasklist.exe /FI "IMAGENAME eq paraview.exe" 2>&1)"
+    set -e
+    printf '%s\n' "$listing"
+    printf '%s\n' "$listing" | grep -qi 'paraview\.exe'
+}
+
+# Ask Windows to start ParaView and accept success only from tasklist.exe.
+# Tries wslpath -w, then \\wsl.localhost\, then \\wsl$\ if the process is absent.
+launch_windows_paraview() {
+    time_name="$1"
+    if [ ! -f "$FOAM_FILE" ]; then
+        die "Missing $FOAM_FILE. Run the Cursor task \"RDEsim: Prepare case\" first."
+    fi
+    if [ ! -d "$CASE/$time_name" ]; then
+        die "Result time folder $CASE/$time_name is not on disk."
+    fi
+    if ! paraview="$(windows_paraview)"; then
+        paraview_missing_message >&2
+        how_to_open_result "$time_name" >&2
+        return 1
+    fi
+    exe_win="$(to_windows_path "$paraview")"
+    echo "Latest result time folder: $CASE/$time_name"
+    echo "ParaView executable: $paraview"
+    echo "Windows executable path: $exe_win"
+
+    paths="$(case_windows_paths "$FOAM_FILE")"
+    if [ -z "$paths" ]; then
+        die "No Windows path could be built for $FOAM_FILE"
+    fi
+
+    wait_s="${RDESIM_PARAVIEW_WAIT:-3}"
+    unique_paths="$(printf '%s\n' "$paths" | awk 'NF && !seen[$0]++')"
+    found=0
+    # The here-document keeps this loop in the current shell so `found` is visible.
+    while IFS= read -r case_win; do
+        [ -n "$case_win" ] || continue
+        echo "Opening $case_win"
+        if ! start_paraview_detached "$exe_win" "$case_win"; then
+            echo "Windows ParaView was not started." >&2
+            how_to_open_result "$time_name" >&2
+            return 1
+        fi
+        sleep "$wait_s"
+        echo "tasklist.exe /FI \"IMAGENAME eq paraview.exe\""
+        if windows_paraview_listed </dev/null; then
+            found=1
+            break
+        fi
+        echo "tasklist.exe did not list paraview.exe after this launch."
+    done <<EOF
+$unique_paths
+EOF
+    if [ "$found" -eq 1 ]; then
+        echo "Windows reports paraview.exe is running."
+        echo "Colour p, then T, rho, U, and lambda."
+        echo "Step the time slider to $time_name."
+        return 0
+    fi
+
+    echo "Windows Task Manager has no paraview.exe. The launch did not start ParaView." >&2
+    echo "The command and its exit code are printed above." >&2
+    how_to_open_result "$time_name" >&2
+    return 1
+}
+
+cmd_open() {
+    if ! time_name="$(latest_result_time "$CASE")"; then
+        die "No result time folder in cases/annulus2D yet. The initial 0/ directory is not a result. Run the Cursor task \"RDEsim: Run annulus2D\" (./bin/rdesim-wsl run) and wait for Allrun to finish."
+    fi
+    launch_windows_paraview "$time_name" || exit 1
 }
 
 cmd_open_result() {
     if ! time_name="$(latest_result_time "$CASE")"; then
         die "Allrun finished but no result time folder was written in cases/annulus2D. The initial 0/ directory is not a result."
     fi
-    if ! paraview="$(windows_paraview)"; then
-        paraview_missing_message
-        how_to_open_result "$time_name"
-        exit 1
-    fi
-    unc="$(wsl_unc "$FOAM_FILE")"
-    echo "Latest result time folder: $CASE/$time_name"
-    echo "Opening $unc"
-    echo "ParaView: $paraview"
-    log="${TMPDIR:-/tmp}/rdesim-paraview.log"
-    "$paraview" "$unc" >"$log" 2>&1 &
-    pid=$!
-    sleep 1
-    if ! kill -0 "$pid" 2>/dev/null; then
-        echo "ParaView exited immediately. Output:" >&2
-        if [ -f "$log" ]; then
-            cat "$log" >&2
-        fi
-        how_to_open_result "$time_name" >&2
-        die "Windows ParaView did not stay open. The result is still on disk. The path was $unc"
-    fi
-    echo "ParaView is running (pid $pid). Colour p, then T, rho, U, and lambda."
-    echo "Step the time slider to $time_name."
+    launch_windows_paraview "$time_name" || exit 1
 }
 
 clear_result_times() {
