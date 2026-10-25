@@ -310,6 +310,7 @@ def _properties(config, state) -> str:
         render_entries(hyper, indent=1),
         "}",
         "",
+        _positivity_block(config),
         "objectives",
         "(",
     ]
@@ -319,6 +320,22 @@ def _properties(config, state) -> str:
         lines.append("    }")
     lines.append(");")
     return "\n".join(lines) + "\n"
+
+
+def _positivity_block(config) -> str:
+    block = config["raw"].get("positivity")
+    if not isinstance(block, dict):
+        return ""
+    enabled = "yes" if as_bool(block["enabled"]) else "no"
+    lines = [
+        "positivity",
+        "{",
+        "    enabled    " + enabled + ";",
+    ]
+    if "TMin" in block:
+        lines.append("    TMin       " + format_number(block["TMin"]) + ";")
+    lines.extend(["}", ""])
+    return "\n".join(lines)
 
 
 def _wall(profile) -> str:

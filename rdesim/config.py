@@ -449,11 +449,26 @@ def _validate_sections(raw: dict, fuel: dict, errors: list[str]) -> None:
         errors,
     )
     _need_word(hyper, "boundaryCoupling", "hyperbolicity.boundaryCoupling", errors)
+    _validate_positivity(raw, errors)
 
     _validate_boundaries(raw["boundaries"], errors)
     _validate_ignition(raw["ignition"], errors)
     _validate_output(raw["output"], errors)
     _validate_optimization(raw["optimization"], errors)
+
+
+def _validate_positivity(raw: dict, errors: list[str]) -> None:
+    block = raw.get("positivity")
+    if block is None:
+        return
+    if not isinstance(block, dict):
+        errors.append("'positivity' must be a dictionary")
+        return
+    enabled = _need_bool(block, "enabled", "positivity.enabled", errors)
+    if enabled:
+        minimum = _need_number(block, "TMin", "positivity.TMin", errors)
+        if minimum is not None and float(minimum) <= 0:
+            errors.append("'positivity.TMin' must be positive")
 
 
 def _validate_fuel(fuel: dict, errors: list[str]) -> None:

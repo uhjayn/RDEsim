@@ -138,6 +138,7 @@ void Foam::solvers::rdeFluid::writeObjectives() const
 
 void Foam::solvers::rdeFluid::postSolve()
 {
+    writePositivityCount();
     writeObjectives();
 }
 

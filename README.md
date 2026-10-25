@@ -286,6 +286,16 @@ Quarter-wave and groove reactive impedances are reported in `constant/acousticRe
 
 A hard wall is `|R| → 1` for a large real `Z`. A soft wall is `R = -1` at `Z = 0`. `Z = rho c` at normal incidence gives `R = 0`. The same `Z` at 60 degrees gives `R = -1/3`.
 
+## Temperature positivity
+
+`shockFluid::fluxPredictor` evaluates `sqrt(gamma R T)`. A non-positive cell temperature is a floating-point exception, not a failed convergence message. On `annulus2D-long` that happened just after `2.4e-5` s. The failing cell sat on the injector face: pressure had fallen to about 1 kPa, speed was about 1100 m/s, and the one-step source in that cell was zero. The momentum update had put more kinetic energy in the cell than `e + 1/2|U|^2` could support at positive temperature. Tightening the Courant number or switching the limiter from vanAlbada to vanLeer did not move that time.
+
+`positivity` in `rdeConfig` is the switch. With `enabled yes`, a cell that would fall below `TMin` has `|U|` reduced and sensible energy raised by the same amount, so `e + 1/2|U|^2` is unchanged. Energy is added only when the cell cannot reach `TMin` even at rest. The log line `Positivity guard` and `postProcessing/positivity/activations.dat` count those cell-steps. Omit the dictionary and the Kurganov update is unchanged. `chemistry.TFloor` is only the argument of the Arrhenius exponential. It is not this floor.
+
+The example uses `TMin 50`. That is below the inlet temperature and below the 244 K dip seen on the coarse mesh before the crash. It is a numerical floor, not a measured gas temperature.
+
+With that switch, `annulus2D-long` was continued from the healthy `2e-5` s fields to `1e-4` s. `foamRun` took 3.75 s and exited 0. The maximum Courant number stayed at about 0.20. No field went NaN, and density stayed positive. The guard scaled `|U|` in 78 cell-steps, two cells at a time, from `2.86e-5` s to `3.01e-5` s, and added energy in none of them. At `4e-5` s the hot products reached about `y = 0.09` m with fresh gas still ahead. By `1e-4` s those products filled the 0.12 m channel. Final temperature was 247 K to 4590 K. This is not a Chapman–Jouguet speed.
+
 ## What is not physically validated
 
 - One-step, single-gamma, perfect-gas kinetics. Not a detailed mechanism, and not a variable-gamma product gas.
@@ -297,6 +307,7 @@ A hard wall is `|R| → 1` for a large real `Z`. A soft wall is `R = -1` at `Z =
 - The example end time is a smoke window.
 - The 2D unwrapped `annulus2D` case was meshed with `blockMesh` and advanced with `foamRun` to `5e-6` s on OpenFOAM 14. 3D arc edges and the laminar Fourier dictionary were not executed.
 - A CFL warning is about the explicit flux, not about whether a detonation will form.
+- `positivity.TMin` stops a cell temperature from crossing that floor by scaling velocity. It is not a physical wall temperature, and a run that reports activations has been altered in those cells.
 
 ## License
 

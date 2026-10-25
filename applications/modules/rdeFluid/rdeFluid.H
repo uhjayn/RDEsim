@@ -40,10 +40,22 @@ class rdeFluid
     word equationOfState_;
     word ddtScheme_;
 
+    // Optional. When enabled, a cell whose kinetic energy would drive T
+    // below positivityTMin_ has |U| scaled down so e + 1/2|U|^2 is unchanged.
+    // The count is the number of cell-steps, not a silent clamp.
+    bool positivityEnabled_;
+    scalar positivityTMin_;
+    label nPositivity_;
+    label nEnergyFloor_;
+
 
     tmp<volScalarField> reactionRate() const;
 
     void progressEquation();
+
+    void boundPositivity();
+
+    void writePositivityCount() const;
 
     void checkHyperbolicity() const;
 

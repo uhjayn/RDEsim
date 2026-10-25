@@ -50,6 +50,12 @@ hyperbolicity
     localSourceIntegrations    (pointImplicit explicit);
 }
 
+positivity
+{
+    enabled    yes;
+    TMin       50;
+}
+
 objectives
 (
     {
