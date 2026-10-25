@@ -170,6 +170,33 @@ numerics
                 tolerance       1e-10;
                 relTol          0;
             }
+            // OpenFOAM 14 reads these on the final outer corrector.
+            // The same settings as the first corrector. A regex such as
+            // "e.*" is not used because this dictionary reader stops at "(".
+            rhoFinal
+            {
+                solver          diagonal;
+            }
+            lambdaFinal
+            {
+                solver          diagonal;
+            }
+            UFinal
+            {
+                solver          smoothSolver;
+                smoother        GaussSeidel;
+                nSweeps         2;
+                tolerance       1e-9;
+                relTol          0.01;
+            }
+            eFinal
+            {
+                solver          smoothSolver;
+                smoother        GaussSeidel;
+                nSweeps         2;
+                tolerance       1e-10;
+                relTol          0;
+            }
         }
         PIMPLE
         {
@@ -281,7 +308,7 @@ optimization
     timeoutSeconds      3600;
     coordinateLevels    1;
     workDirectory       optimization;
-    solverCommand       foamRun;
+    solverCommand       "./Allrun";     // blockMesh then foamRun; not a shell line
     objective
     {
         name            pressureGain;

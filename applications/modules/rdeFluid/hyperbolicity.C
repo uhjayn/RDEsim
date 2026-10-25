@@ -331,10 +331,14 @@ void Foam::solvers::rdeFluid::checkHyperbolicity() const
             runTime.path()/"postProcessing"/"hyperbolicity";
         mkDir(directory);
         OFstream os(directory/"report");
-        os << report.str();
+        // write(const char*) keeps the report as plain lines. A Foam string
+        // insertion quotes the text and escapes newlines.
+        os.write(report.str().c_str());
     }
 
-    Info<< report.str() << endl;
+    OSstream& log = Info;
+    log.write(report.str().c_str());
+    log << endl;
 
     if (!hyperbolic)
     {

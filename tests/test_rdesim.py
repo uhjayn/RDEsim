@@ -232,6 +232,12 @@ class CaseTests(unittest.TestCase):
             thermo = (case / "constant" / "physicalProperties").read_text(encoding="utf-8")
             self.assertIn("perfectGas", thermo)
             hydrogen_weight = _mol_weight(thermo)
+            state = mixture_from_config(config)
+            self.assertAlmostEqual(
+                float(hydrogen_weight),
+                8314.462618 / state.specific_gas,
+                places=6,
+            )
             config["raw"]["fuel"]["name"] = "ethylene-air"
             switched = load_config(_materialise(config["raw"]))
             prepare_case(switched, Path(tmp) / "ethylene")

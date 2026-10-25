@@ -1,7 +1,7 @@
 #!/bin/sh
 # Actions for the WSL Cursor tasks. Linux paths only.
 #   ./bin/rdesim-wsl simulate
-#   ./bin/rdesim-wsl prepare|build|run|open
+#   ./bin/rdesim-wsl prepare|build|run|open|test
 # Edit cases/annulus2D/rdeConfig and fuels/<name>/fuelDict. This script does
 # not change the physics. It does not call an agent or a remote API.
 
@@ -13,12 +13,13 @@ CONFIG="$CASE/rdeConfig"
 FOAM_FILE="$CASE/annulus2D.foam"
 
 usage() {
-    echo "Usage: ./bin/rdesim-wsl simulate|prepare|build|run|open" >&2
+    echo "Usage: ./bin/rdesim-wsl simulate|prepare|build|run|open|test" >&2
     echo "  simulate source OpenFOAM, prepare, build if needed, run, open ParaView" >&2
     echo "  prepare  write the annulus2D case from rdeConfig" >&2
     echo "  build    source OpenFOAM 14 and run Allwmake" >&2
     echo "  run      source OpenFOAM 14 and run cases/annulus2D/Allrun" >&2
     echo "  open     open the latest result in Windows ParaView" >&2
+    echo "  test     Allwmake, unit tests, then blockMesh and foamRun on annulus2D" >&2
 }
 
 die() {
@@ -244,6 +245,43 @@ cmd_open_result() {
     echo "Step the time slider to $time_name."
 }
 
+clear_result_times() {
+    CASE="$1" python3 - <<'PY'
+import math
+import os
+import shutil
+from pathlib import Path
+
+case = Path(os.environ["CASE"])
+for path in case.iterdir():
+    if not path.is_dir():
+        continue
+    try:
+        value = float(path.name)
+    except ValueError:
+        continue
+    if math.isfinite(value) and value > 0:
+        shutil.rmtree(path)
+PY
+}
+
+# Build, unit tests, then a fresh annulus2D run. Stops at the first failure.
+# The initial 0/ directory is kept. Result time folders from an earlier run
+# are removed so the folder foamRun writes is from this test.
+cmd_test() {
+    cd "$ROOT"
+    source_openfoam
+    ./Allwmake
+    python3 -m unittest tests.test_rdesim
+    (cd "$CASE" && ./Allclean)
+    clear_result_times "$CASE"
+    (cd "$CASE" && blockMesh && foamRun)
+    if ! time_name="$(latest_result_time "$CASE")"; then
+        die "foamRun finished but no result time folder was written in cases/annulus2D. The initial 0/ directory is not a result."
+    fi
+    echo "annulus2D wrote result time folder $time_name"
+}
+
 # One entry point: source, prepare, build only if needed, run, then open.
 # Each step stops the script on failure. A missing ParaView does not delete
 # the case that Allrun just wrote.
@@ -267,6 +305,7 @@ case "$1" in
     build) cmd_build ;;
     run) cmd_run ;;
     open) cmd_open ;;
+    test) cmd_test ;;
     *)
         usage
         exit 1

@@ -226,6 +226,20 @@ def _solution(config) -> str:
     return render_entries(config["raw"]["numerics"]["fvSolution"]) + "\n"
 
 
+def _openfoam_mol_weight(state) -> float:
+    """kg/kmol entry that makes OpenFOAM's specie::R() match this mixture.
+
+    Foundation OpenFOAM 14 stores molWeight in kg/kmol and uses
+    R = 8314.462618/molWeight. Fuel files stay in kg/mol. Multiplying by
+    1000 matches that gas constant when constants.RUniversal is
+    8.314462618 J/(mol·K). Dividing the OpenFOAM constant by the mixture
+    specific gas constant keeps the same gamma if RUniversal differs.
+    """
+
+    openfoam_rr = 8314.462618
+    return openfoam_rr / state.specific_gas
+
+
 def _thermo(config, state) -> str:
     mu = state.mu
     return f"""thermoType
@@ -243,7 +257,7 @@ mixture
 {{
     specie
     {{
-        molWeight   {format_number(state.mol_weight)};
+        molWeight   {format_number(_openfoam_mol_weight(state))};
     }}
     thermodynamics
     {{

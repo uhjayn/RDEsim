@@ -74,6 +74,24 @@
       "problemMatcher": []
     },
     {
+      "label": "RDEsim: Run tests",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/bin/rdesim-wsl",
+        "test"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "RDEsim: Open latest result in Windows ParaView",
       "type": "shell",
       "command": "bash",

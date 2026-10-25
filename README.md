@@ -8,6 +8,8 @@ The same command from a WSL terminal is `./bin/rdesim-wsl simulate`.
 
 Four separate tasks remain if you want one step only: **RDEsim: Prepare case**, **RDEsim: Build solver**, **RDEsim: Run annulus2D**, and **RDEsim: Open latest result in Windows ParaView**. From a terminal those are `./bin/rdesim-wsl prepare`, `build`, `run`, and `open`.
 
+**RDEsim: Run tests** runs `./bin/rdesim-wsl test`. That sources the OpenFOAM 14 bashrc, runs `Allwmake`, runs `python3 -m unittest tests.test_rdesim`, then `blockMesh` and `foamRun` on `cases/annulus2D`. It removes an earlier result time folder first and keeps `0/`. It stops at the first failure and prints the time folder `foamRun` wrote.
+
 The open task finds ParaView at `/mnt/c/Program Files/ParaView*/bin/paraview.exe` and opens:
 
 ```text
@@ -34,7 +36,7 @@ Locked target:
 - OpenFOAM Foundation 14 (released 14 July 2026), package `openfoam14`, sourced with `. /opt/openfoam14/etc/bashrc` in that WSL terminal. Not the OpenFOAM.com / Keysight line and not v2606.
 - ParaView installed on Windows. It opens `\\wsl$\<distro>\...\cases\annulus2D\annulus2D.foam`. A `paraFoam` session inside WSL is optional.
 
-The install commands below are the ones published at <https://openfoam.org/download/14-ubuntu/>. They were not executed while this tree was prepared. `wmake`, `blockMesh`, `foamRun`, and ParaView were not run here either: this environment has no OpenFOAM and no ParaView. The solver sources follow the OpenFOAM 14 API on the Foundation git line (`shockFluid`, `fieldMapper`, `foamRun` loading `librdeFluidSolver.so`). Foundation v14 stays compatible inside the v14 line; a later pack such as 20261008 was not compiled against.
+The install commands below are the ones published at <https://openfoam.org/download/14-ubuntu/>. Package `openfoam14` (20261008) was installed from that repository on Ubuntu 24.04 in the authoring environment, which is not the Ubuntu 26.04 WSL machine. `./Allwmake`, `blockMesh`, and `foamRun` were run there on `cases/annulus2D`. The run reached `5e-6` s and wrote time folders. Windows ParaView was not launched. The solver is the OpenFOAM 14 `shockFluid` module loaded by `foamRun` as `librdeFluidSolver.so`.
 
 ### Install OpenFOAM 14 on Ubuntu 26.04
 
@@ -157,6 +159,8 @@ The fuel file holds the fuel name and molar mass, the oxidizer species (mole fra
 
 `constants.RUniversal` in `rdeConfig` is the gas constant in J/(mol·K). The example uses 8.314462618. Specific gas constant is `RUniversal / W`. `Cp = gamma/(gamma-1) * R_specific`. Heat release in the energy equation is `q = Y_f * LHV`. `hf` is passed through; the example is 0, so the heat release is `q`, not `hf`.
 
+Fuel molar masses stay in kg/mol. OpenFOAM 14's `specie` entry is kg/kmol and `R() = 8314.462618/molWeight`. `prepare` writes that kg/kmol value so OpenFOAM's gas constant equals `RUniversal / W`. With the example `RUniversal`, that is 1000 times the SI molar mass. `Cp` stays in J/(kg·K).
+
 `Y_f,st` comes from the stoichiometry. `Y_f = phi * Y_f,st / (1 + (phi-1) Y_f,st)`. `frozenReactants` mixes fuel and oxidizer molar masses and uses `thermo.gamma`. `frozenProducts` uses `productMolWeight` and `productGamma`. The thermo model is still one gamma. A `janaf` thermo or any equation of state other than `perfectGas` is rejected.
 
 `numerics.flowModel euler` writes `mu` as 0 in `constant/physicalProperties` even though the fuel file still holds the viscosity you would use for `navierStokes`.
@@ -165,7 +169,7 @@ The fuel file holds the fuel name and molar mass, the oxidizer species (mole fra
 
 `flowModel` is `euler` or `navierStokes`. `fluxScheme` is `Kurganov` or `Tadmor`. `ddtScheme`, `gradScheme`, `laplacianScheme`, `reconstructScalar`, `reconstructVector`, `fluxInterpolation`, `CFL`, `deltaT`, `maxDeltaT`, `startTime`, `endTime`, `adjustTimeStep`, `deltaTFactor`, `writeFormat`, `writePrecision`, `timePrecision`, `runTimeModifiable`, and `sourceIntegration` (`pointImplicit` or `explicit`) are all written through.
 
-`fvSolution` is copied from `numerics.fvSolution`. The example names `rho`, `lambda`, `U`, and `e` exactly, because this dictionary reader treats a parenthesis as the end of a word, so a solver regex such as `"(U|e)"` is not used. OpenFOAM falls back from `lambdaFinal` to `lambda` when it looks for a final solver; that fallback was not runtime-checked. `PIMPLE.nOuterCorrectors` is in the same dictionary.
+`fvSolution` is copied from `numerics.fvSolution`. The example names `rho`, `lambda`, `U`, and `e` exactly, and repeats them as `rhoFinal`, `lambdaFinal`, `UFinal`, and `eFinal` with the same solver settings. OpenFOAM 14 looks up the `Final` entry on the last outer corrector and does not fall back to the name without `Final`. A solver regex such as `"(U|e)"` is not used, because this dictionary reader treats a parenthesis as the end of a word. `PIMPLE.nOuterCorrectors` is in the same dictionary. The example uses 2.
 
 `momentumTransport` and `thermophysicalTransport` are copied when `flowModel` is `navierStokes` (the transport dictionary is required then). The example laminar Fourier entry was not runtime-checked. Euler mode does not read it.
 
@@ -203,7 +207,7 @@ After a run, `rdeFluid` writes `postProcessing/rdeObjectives/objectives.dat` (la
 
 ## Optimization
 
-`optimization` in `rdeConfig` sets `method` (`grid` or `coordinate`), `maxEvaluations`, `timeoutSeconds`, `coordinateLevels`, `workDirectory`, and `solverCommand`. The example command is `foamRun`. The command is split on whitespace and is not passed to a shell. Each evaluation is a case directory under `workDirectory`, and the command runs there.
+`optimization` in `rdeConfig` sets `method` (`grid` or `coordinate`), `maxEvaluations`, `timeoutSeconds`, `coordinateLevels`, `workDirectory`, and `solverCommand`. The example command is `./Allrun`, because each evaluation is a new case directory with no mesh yet. `Allrun` is `blockMesh` then `foamRun`. The command is split on whitespace and is not passed to a shell, so `blockMesh && foamRun` is not a valid `solverCommand`. The command runs in that case directory.
 
 `objective.expression` may use `+ - * /`, parentheses, and names from `output.objectives`. The example is `pMeanOutlet/pMeanInlet`, sense `maximize`. `designVariables` name an existing config path such as `geometry.steps[0].height`. `samples` includes both ends; one sample is the minimum only. `grid` is the Cartesian product. `coordinate` starts at the first sample of each variable, sweeps one variable at a time, keeps the best feasible point, and repeats for `coordinateLevels`.
 
@@ -287,7 +291,7 @@ A hard wall is `|R| → 1` for a large real `Z`. A soft wall is `R = -1` at `Z =
 - The 3D mesh does not resolve discrete injector slots.
 - Acoustics are lumped. Cavities are not meshed. The Helmholtz ODE is explicit Euler and is not a proven stable integrator for every `deltaT`.
 - The example end time is a smoke window.
-- `blockMesh` face order, 3D arc edges, the zonal kernel syntax, the laminar Fourier dictionary, and this solver were not executed against OpenFOAM 14 here.
+- The 2D unwrapped `annulus2D` case was meshed with `blockMesh` and advanced with `foamRun` to `5e-6` s on OpenFOAM 14. 3D arc edges and the laminar Fourier dictionary were not executed.
 - A CFL warning is about the explicit flux, not about whether a detonation will form.
 
 ## License
