@@ -10,3 +10,4 @@ applications/modules/rdeFluid/linux*
 applications/modules/rdeFluid/Make/linux*
 applications/modules/rdeFluid/lnInclude/
 *.o
+runs/

@@ -24,7 +24,19 @@ class rdeFluid
     // constant/rdeProperties. Every chemistry coefficient is read from there.
     IOdictionary properties_;
 
+    // oneStepProgress or twoStep. oneStepProgress is the default.
+    word reactionModel_;
+
     volScalarField lambda_;
+
+    // twoStep: induction progress xi (0 to 1) and its Arrhenius-type constants.
+    autoPtr<volScalarField> xi_;
+    scalar inductionA_;
+    scalar inductionTa_;
+    scalar releaseA_;
+    scalar releaseTa_;
+    scalar releaseOrder_;
+    scalar inductionMargin_;
 
     dimensionedScalar A_;
     scalar beta_;
@@ -40,10 +52,24 @@ class rdeFluid
     word equationOfState_;
     word ddtScheme_;
 
+    // Optional. When enabled, a cell whose kinetic energy would drive T
+    // below positivityTMin_ has |U| scaled down so e + 1/2|U|^2 is unchanged.
+    // The count is the number of cell-steps, not a silent clamp.
+    bool positivityEnabled_;
+    scalar positivityTMin_;
+    label nPositivity_;
+    label nEnergyFloor_;
+
 
     tmp<volScalarField> reactionRate() const;
 
+    void inductionEquation();
+
     void progressEquation();
+
+    void boundPositivity();
+
+    void writePositivityCount() const;
 
     void checkHyperbolicity() const;
 

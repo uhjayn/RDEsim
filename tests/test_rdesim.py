@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import shutil
 import subprocess
 import tempfile
@@ -261,6 +262,65 @@ class CaseTests(unittest.TestCase):
             control = (Path(tmp) / "cfl" / "system" / "controlDict").read_text(encoding="utf-8")
             self.assertIn("maxCo           0.4;", control)
 
+    def test_positivity_guard_is_optional_and_written(self):
+        config = load_config(EXAMPLE)
+        self.assertEqual(config["raw"]["positivity"]["enabled"], "yes")
+        with tempfile.TemporaryDirectory() as tmp:
+            prepare_case(config, Path(tmp) / "annulus")
+            text = (Path(tmp) / "annulus" / "constant" / "rdeProperties").read_text(encoding="utf-8")
+            self.assertIn("enabled    yes;", text)
+            self.assertIn("TMin       50;", text)
+        bare = load_config(EXAMPLE)
+        del bare["raw"]["positivity"]
+        load_config(_materialise(bare["raw"]))
+        rejected = load_config(EXAMPLE)
+        rejected["raw"]["positivity"]["TMin"] = 0
+        with self.assertRaises(ConfigError):
+            load_config(_materialise(rejected["raw"]))
+
+    def test_fine_channel_meets_ten_cells_across_the_chemical_length(self):
+        path = ROOT / "cases" / "annulus2D-cells" / "rdeConfig"
+        config = load_config(path)
+        raw = config["raw"]
+        self.assertEqual(int(raw["mesh"]["nCircumferential"]), 180)
+        self.assertEqual(int(raw["mesh"]["nAxial"]), 260)
+        self.assertEqual(raw["numerics"]["startFrom"], "latestTime")
+        chemistry = mixture_from_config(config).chemistry
+        temperature = float(raw["ignition"]["TKernel"])
+        rate = (
+            float(chemistry["A"])
+            * (temperature / float(chemistry["TRef"])) ** float(chemistry["beta"])
+            * math.exp(-float(chemistry["Ta"]) / temperature)
+        )
+        length = mixture_from_config(config).sound_speed / rate
+        built = build_mesh(config, build_profile(config))
+        axial = []
+        circumferential = []
+        n_cells = 0
+        for block in built.hexes:
+            nx, ny, nz = (max(int(count), 1) for count in block.cells)
+            count = nx * ny * nz
+            n_cells += count
+            circumferential.extend(
+                [math.dist(tuple(block.corners[0]), tuple(block.corners[1])) / nx] * count
+            )
+            axial.extend(
+                [math.dist(tuple(block.corners[0]), tuple(block.corners[3])) / ny] * count
+            )
+        axial_m = sorted(axial)[len(axial) // 2]
+        circumferential_m = sorted(circumferential)[len(circumferential) // 2]
+        self.assertEqual(n_cells, 180 * 260)
+        self.assertGreaterEqual(length / axial_m, 10)
+        self.assertGreaterEqual(length / circumferential_m, 10)
+        with tempfile.TemporaryDirectory() as tmp:
+            case = Path(tmp) / "annulus2D-cells"
+            prepare_case(config, case)
+            control = (case / "system" / "controlDict").read_text(encoding="utf-8")
+            self.assertIn("startFrom       latestTime;", control)
+            self.assertIn("endTime         3e-06;", control)
+            self.assertIn("type            peakPressure;", control)
+            self.assertIn("writeInterval   5e-07;", control)
+
 
 class OptimizerTests(unittest.TestCase):
     def test_grid_varies_step_height(self):
@@ -371,6 +431,31 @@ class ParaViewLaunchTests(unittest.TestCase):
         )
         if result.returncode != 0:
             self.fail(result.stdout + result.stderr)
+
+
+class ResolutionTests(unittest.TestCase):
+    def test_example_mesh_is_too_coarse_for_cells(self):
+        from rdesim.resolution import CELLS_ACROSS_CHEMICAL_LENGTH, resolution_report
+
+        report = resolution_report(load_config(EXAMPLE))
+        self.assertTrue(report.coarse)
+        self.assertLess(report.cells_axial, CELLS_ACROSS_CHEMICAL_LENGTH)
+        self.assertLess(report.cells_circumferential, CELLS_ACROSS_CHEMICAL_LENGTH)
+        self.assertIn("not a ZND induction length", report.text)
+        self.assertIn("not a measured cell width", report.text)
+        self.assertIn("too coarse to resolve detonation cells", report.text)
+        self.assertGreater(report.n_cells, 0)
+        self.assertGreater(report.axial_m, 0.0)
+
+    def test_prepare_writes_peak_pressure_controls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case = Path(tmp) / "annulus"
+            prepare_case(load_config(EXAMPLE), case)
+            control = (case / "system" / "controlDict").read_text(encoding="utf-8")
+            self.assertIn("type            peakPressure;", control)
+            self.assertIn("writeInterval   1e-06;", control)
+            resolution = (case / "constant" / "meshResolution").read_text(encoding="utf-8")
+            self.assertIn("WARNING: the grid is too coarse", resolution)
 
 
 def tearDownModule():

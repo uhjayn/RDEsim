@@ -1,8 +1,20 @@
 #!/bin/sh
 # Actions for the WSL Cursor tasks. Linux paths only.
 #   ./bin/rdesim-wsl simulate [--case cases/annulus2D-long]
-#   ./bin/rdesim-wsl prepare|build|run|open|test [--case PATH]
+#   ./bin/rdesim-wsl prepare|build|run|open|test|optimize|cjcheck [--case PATH]
 #   ./bin/rdesim-wsl validate|validate-full
+# Options after the command (--runs, --fresh, --budget also work with run,
+# prepare, open, and optimize as noted):
+#   --runs          keep this run in runs/<case>-<model>-<fingerprint>. The
+#                   same physics resumes from its latest time; a changed case
+#                   gets its own folder. Without --runs the case folder is
+#                   used in place, as before.
+#   --model NAME    reaction model: oneStepProgress (default), twoStep. This
+#                   overrides reaction.model in rdeConfig. With --runs each model
+#                   has its own run folder.
+#   --fresh         delete earlier result times of this run (optimize: the
+#                   stored evaluations) before starting
+#   --budget N      optimize only: start at most N new solver evaluations
 # Edit the case rdeConfig and fuels/<name>/fuelDict. This script does
 # not change the physics. It does not call an agent or a remote API.
 
@@ -16,17 +28,25 @@ CASE_REL="cases/annulus2D"
 FOAM_FILE="$CASE/annulus2D.foam"
 
 usage() {
-    echo "Usage: ./bin/rdesim-wsl simulate|prepare|run|open [--case PATH]" >&2
+    echo "Usage: ./bin/rdesim-wsl simulate|prepare|run|open|cells [--case PATH] [--model NAME] [--runs] [--fresh]" >&2
+    echo "       ./bin/rdesim-wsl optimize [--case PATH] [--model NAME] [--fresh] [--budget N]" >&2
     echo "       ./bin/rdesim-wsl build|test|validate|validate-full" >&2
+    echo "       ./bin/rdesim-wsl cjcheck [--case PATH] [--model NAME]" >&2
     echo "  simulate source OpenFOAM, prepare, build if needed, run, open ParaView" >&2
     echo "  prepare  write the case from its rdeConfig" >&2
     echo "  build    source OpenFOAM 14 and run Allwmake" >&2
     echo "  run      source OpenFOAM 14 and run the case Allrun" >&2
     echo "  open     start Windows ParaView on the latest result in the case" >&2
+    echo "  cells    print the mesh-resolution report and render pMax with pvbatch" >&2
     echo "  test     Allwmake, unit tests, then blockMesh and foamRun on annulus2D" >&2
     echo "  validate      H2-air detonation tube: build if needed, run calibrated-N10, print the comparison table" >&2
     echo "  validate-full every run in cases/detonationTubeH2/validationConfig (resolution study, original fuel)" >&2
+    echo "  cjcheck  1D tube: measured detonation speed against Chapman-Jouguet for the model" >&2
+    echo "  optimize run python3 -m rdesim optimize; finished evaluations are reused" >&2
     echo "  --case   case directory, default cases/annulus2D" >&2
+    echo "  --runs   keep results in runs/<case>-<model>-<fingerprint>; the same physics resumes" >&2
+    echo "  --fresh  delete earlier result times (optimize: stored evaluations) first" >&2
+    echo "  --budget optimize only: at most N new solver evaluations" >&2
     echo "           example: ./bin/rdesim-wsl simulate --case cases/annulus2D-long" >&2
 }
 
@@ -215,7 +235,21 @@ case_windows_paths() {
 
 cmd_prepare() {
     cd "$ROOT"
-    python3 -m rdesim prepare --config "$CONFIG" --case "$CASE"
+    if [ "$USE_RUNS" -eq 1 ]; then
+        python3 -m rdesim prepare --config "$CONFIG" --run-folder --runs-root "$RUNS_ROOT" ${MODEL:+--model "$MODEL"}
+    else
+        python3 -m rdesim prepare --config "$CONFIG" --case "$CASE" ${MODEL:+--model "$MODEL"}
+    fi
+}
+
+# --runs: point CASE at runs/<case>-<model>-<fingerprint> for this config.
+select_run_folder() {
+    if [ "$USE_RUNS" -eq 1 ]; then
+        CASE="$(cd "$ROOT" && python3 -m rdesim run-dir --config "$CONFIG" --runs-root "$RUNS_ROOT" ${MODEL:+--model "$MODEL"})"
+        FOAM_FILE="$CASE/$(basename "$CASE").foam"
+        CASE_REL="$CASE"
+        echo "Run folder: $CASE"
+    fi
 }
 
 cmd_build() {
@@ -247,6 +281,7 @@ cmd_build_if_needed() {
 
 cmd_run() {
     cd "$ROOT"
+    select_run_folder
     source_openfoam
     if [ -z "${FOAM_USER_LIBBIN:-}" ] || [ ! -e "$FOAM_USER_LIBBIN/librdeFluidSolver.so" ]; then
         die "librdeFluidSolver.so is not in FOAM_USER_LIBBIN. Run the Cursor task \"RDEsim: Build solver\" first (./bin/rdesim-wsl build)."
@@ -383,6 +418,7 @@ EOF
 }
 
 cmd_open() {
+    select_run_folder
     if ! time_name="$(latest_result_time "$CASE")"; then
         die "No result time folder in $CASE yet. The initial 0/ directory is not a result. Run ./bin/rdesim-wsl run --case $CASE_REL and wait for Allrun to finish."
     fi
@@ -424,7 +460,7 @@ cmd_test() {
     select_case "cases/annulus2D"
     source_openfoam
     ./Allwmake
-    python3 -m unittest tests.test_rdesim
+    python3 -m unittest tests.test_rdesim tests.test_runs tests.test_reaction_models
     (cd "$CASE" && ./Allclean)
     clear_result_times "$CASE"
     (cd "$CASE" && blockMesh && foamRun)
@@ -444,20 +480,96 @@ cmd_validate() {
     python3 -u -m rdesim.validation run "$@"
 }
 
+# Print the chemical-length report, then ask pvbatch to draw pMax and the mesh.
+# Windows pvbatch.exe is preferred so the same ParaView install is used.
+cmd_cells() {
+    cd "$ROOT"
+    select_run_folder
+    python3 -m rdesim resolution --config "$CONFIG" ${MODEL:+--model "$MODEL"}
+    script="$ROOT/paraview/cell_structure.py"
+    if [ ! -f "$FOAM_FILE" ]; then
+        die "Missing $FOAM_FILE. Run ./bin/rdesim-wsl prepare first."
+    fi
+    batch=""
+    if paraview="$(windows_paraview 2>/dev/null || true)" && [ -n "$paraview" ]; then
+        candidate="$(dirname "$paraview")/pvbatch.exe"
+        if [ -f "$candidate" ]; then
+            batch="$candidate"
+        fi
+    fi
+    if [ -z "$batch" ] && command -v pvbatch >/dev/null 2>&1; then
+        batch="$(command -v pvbatch)"
+    fi
+    if [ -z "$batch" ]; then
+        echo "pvbatch was not found, so no image was written." >&2
+        echo "After a run, from the ParaView install:" >&2
+        printf '%s\n' "pvbatch --force-offscreen-rendering \"$script\" \"$CASE\"" >&2
+        echo "pMax is a pressure history. It is not a measured cell width." >&2
+        return 0
+    fi
+    echo "pvbatch: $batch"
+    echo "pMax is a pressure history. It is not a measured cell width."
+    set +e
+    "$batch" --force-offscreen-rendering "$script" "$CASE"
+    code=$?
+    set -e
+    if [ "$code" -ne 0 ]; then
+        die "pvbatch exited $code. The mesh-resolution report above is still the cell-size check."
+    fi
+}
+
 # One entry point: source, prepare, build only if needed, run, then open.
 # Each step stops the script on failure. A missing ParaView does not delete
 # the case that Allrun just wrote.
 cmd_simulate() {
     cd "$ROOT"
+    select_run_folder
     source_openfoam
     cmd_prepare
     cmd_build_if_needed
+    if [ "$FRESH" -eq 1 ]; then
+        clear_result_times "$CASE"
+    fi
     (cd "$CASE" && ./Allrun)
     cmd_open_result
 }
 
+# Evaluations are cases of their own. Each one runs blockMesh and foamRun and
+# resumes from its latest time, so Ctrl-C and a later repeat lose little.
+cmd_optimize() {
+    cd "$ROOT"
+    source_openfoam
+    cmd_build_if_needed
+    set -- --config "$CONFIG"
+    if [ -n "$MODEL" ]; then
+        set -- "$@" --model "$MODEL"
+    fi
+    if [ -n "$BUDGET" ]; then
+        set -- "$@" --budget "$BUDGET"
+    fi
+    if [ "$FRESH" -eq 1 ]; then
+        set -- "$@" --fresh
+    fi
+    python3 -m rdesim optimize "$@"
+}
+
+# One-dimensional tube with the selected model. The case is written to
+# runs/cjcheck-<model> and rewritten on every call.
+cmd_cjcheck() {
+    cd "$ROOT"
+    source_openfoam
+    cmd_build_if_needed
+    name="${MODEL:-$(python3 -c "import sys; from rdesim.config import load_config, reaction_model; print(reaction_model(load_config(sys.argv[1])))" "$CONFIG")}"
+    python3 -m rdesim.cjcheck --config "$CONFIG" ${MODEL:+--model "$MODEL"} --case "$RUNS_ROOT/cjcheck-$name"
+}
+
 COMMAND=""
 CASE_OPT=""
+USE_RUNS=0
+FRESH=0
+BUDGET=""
+MODEL=""
+RUNS_ROOT="${RDESIM_RUNS:-$ROOT/runs}"
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --case)
@@ -470,8 +582,30 @@ while [ "$#" -gt 0 ]; do
         --case=*)
             CASE_OPT="${1#--case=}"
             ;;
+        --runs) USE_RUNS=1 ;;
+        --fresh) FRESH=1 ;;
+        --model)
+            shift
+            if [ "$#" -lt 1 ]; then
+                die "--model needs a name"
+            fi
+            MODEL="$1"
+            ;;
+        --model=*)
+            MODEL="${1#--model=}"
+            ;;
+        --budget)
+            shift
+            if [ "$#" -lt 1 ]; then
+                die "--budget needs a number"
+            fi
+            BUDGET="$1"
+            ;;
+        --budget=*)
+            BUDGET="${1#--budget=}"
+            ;;
         -*)
-            die "Unknown option $1. Use --case PATH with simulate, prepare, run, or open."
+            die "Unknown option $1. Use --case PATH, --model NAME, --runs, --fresh, or --budget N."
             ;;
         *)
             if [ -n "$COMMAND" ]; then
@@ -488,8 +622,12 @@ if [ -z "$COMMAND" ]; then
     exit 1
 fi
 
+if [ -n "$BUDGET" ] && [ "$COMMAND" != "optimize" ]; then
+    die "--budget only applies to optimize."
+fi
+
 case "$COMMAND" in
-    simulate|prepare|run|open)
+    simulate|prepare|run|open|cells|optimize|cjcheck)
         select_case "${CASE_OPT:-cases/annulus2D}"
         ;;
     build|test|validate|validate-full)
@@ -509,7 +647,10 @@ case "$COMMAND" in
     build) cmd_build ;;
     run) cmd_run ;;
     open) cmd_open ;;
+    cells) cmd_cells ;;
     test) cmd_test ;;
     validate) cmd_validate ;;
     validate-full) cmd_validate --all ;;
+    optimize) cmd_optimize ;;
+    cjcheck) cmd_cjcheck ;;
 esac

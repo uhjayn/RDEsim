@@ -40,6 +40,66 @@
       "problemMatcher": []
     },
     {
+      "label": "RDEsim: Run and visualize (run folder, resumes)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/bin/rdesim-wsl",
+        "simulate",
+        "--runs"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "RDEsim: Run and visualize (choose reaction model)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/bin/rdesim-wsl",
+        "simulate",
+        "--runs",
+        "--model",
+        "${input:reactionModel}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "RDEsim: 1D CJ check (choose reaction model)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/bin/rdesim-wsl",
+        "cjcheck",
+        "--model",
+        "${input:reactionModel}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "RDEsim: Prepare case",
       "type": "shell",
       "command": "bash",
@@ -112,6 +172,24 @@
       "problemMatcher": []
     },
     {
+      "label": "RDEsim: Cell structure view",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/bin/rdesim-wsl",
+        "cells"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "RDEsim: Open latest result in Windows ParaView",
       "type": "shell",
       "command": "bash",
@@ -128,6 +206,64 @@
         "focus": true
       },
       "problemMatcher": []
+    },
+    {
+      "label": "RDEsim: Cell structure view (fine)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/bin/rdesim-wsl",
+        "cells",
+        "--case",
+        "cases/annulus2D-cells"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "RDEsim: Optimize (resume, with budget)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/bin/rdesim-wsl",
+        "optimize",
+        "--budget",
+        "${input:evaluationBudget}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "evaluationBudget",
+      "type": "promptString",
+      "description": "Most new solver evaluations to start in this call. Finished evaluations are reused and cost nothing.",
+      "default": "3"
+    },
+    {
+      "id": "reactionModel",
+      "type": "pickString",
+      "description": "Reaction model",
+      "options": [
+        "oneStepProgress",
+        "twoStep"
+      ],
+      "default": "oneStepProgress"
     },
     {
       "label": "RDEsim: Run validation",

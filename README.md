@@ -2,6 +2,33 @@
 
 OpenFOAM runs in WSL. ParaView runs on Windows and opens the case through the WSL path.
 
+RDEsim writes an OpenFOAM 14 case for a rotating-detonation-engine annulus, checks that the selected model stays a hyperbolic balance law, and can repeat the case while it changes wall steps and other geometry. The flow solver is `rdeFluid`, a small module on top of the Foundation `shockFluid` solver (Kurganov–Tadmor).
+
+This is not a production RDE code. The model is the reactive Euler equations with one perfect gas and one progress variable. The fuel numbers are illustrative. Nothing here has been validated against detonation data (measured speed, cell size, wave count, or thrust). See [What is not physically validated](#what-is-not-physically-validated).
+
+## Quick start
+
+You need Windows with WSL2 and an Ubuntu distro (its name shows as `Ubuntu-26.04` in `wsl.exe -l -q`), OpenFOAM Foundation 14 installed in that distro ([install steps](#install-openfoam-14-on-ubuntu-2604)), ParaView 6.2.0 for Windows, and Cursor with its WSL extension.
+
+1. **Get the repo into WSL.** In the Ubuntu terminal:
+
+   ```sh
+   cd ~
+   git clone https://github.com/uhjayn/RDEsim.git
+   cd RDEsim
+   git switch main
+   git pull
+   ```
+
+   For an existing clone, run only `cd ~/RDEsim`, `git switch main`, and `git pull`. Then open `~/RDEsim` in Cursor through the WSL extension, so the folder is the Linux path and not a Windows copy.
+2. **Build and run.** Command Palette → **Tasks: Run Task** → **RDEsim: Run and visualize**. That one task runs `./bin/rdesim-wsl simulate`: it prepares `cases/annulus2D`, builds the solver on the first run (or when the solver sources change), runs `blockMesh` and `foamRun`, then starts ParaView. The short case ends at `5e-6` s.
+3. **Open the result.** The task prints `Windows reports paraview.exe is running.` only after Windows confirms it with `tasklist.exe`. If it does not, open ParaView yourself and use File → Open with the path the script prints, `\\wsl$\<distro>\home\<you>\RDEsim\cases\annulus2D\annulus2D.foam`. [ParaView on Windows](#paraview-on-windows) has the details.
+4. **Colour a field.** In ParaView select `annulus2D.foam` in the Pipeline Browser and click Apply (choose the OpenFOAM reader if ParaView asks). Use Last Frame to go to the result time. In the Coloring drop-down pick **p**, then **T**, **rho**, **U**, and **lambda**.
+
+For a longer window run **RDEsim: Run and visualize (long)** instead. Its limit is described under [Run a case](#run-a-case).
+
+## Cursor tasks
+
 Edit `cases/annulus2D/rdeConfig` and `fuels/<name>/fuelDict` in Cursor. Those two files are the case. There is no separate GUI. Then start **RDEsim: Run and visualize** from Command Palette → **Tasks: Run Task**. That one task runs `./bin/rdesim-wsl simulate`. The script sources the OpenFOAM 14 bashrc, prepares `cases/annulus2D` from `rdeConfig`, builds with `Allwmake` only when `librdeFluidSolver.so` is missing or the solver sources are newer, runs `Allrun`, and asks Windows to start ParaView. It stops at the first failure. It says ParaView is running only when `tasklist.exe` lists `paraview.exe`. If that launch fails, the case stays on disk and the script prints a path to paste into ParaView's File → Open.
 
 The same command from a WSL terminal is `./bin/rdesim-wsl simulate`.
@@ -10,37 +37,24 @@ The same command from a WSL terminal is `./bin/rdesim-wsl simulate`.
 
 **RDEsim: Run validation** runs `./bin/rdesim-wsl validate`, the H2-air detonation-tube comparison, see [Validation](#validation-h2-air-detonation-tube). **RDEsim: Run validation (full, resolution study)** runs `validate-full`.
 
-Four separate tasks remain if you want one step only: **RDEsim: Prepare case**, **RDEsim: Build solver**, **RDEsim: Run annulus2D**, and **RDEsim: Open latest result in Windows ParaView**. From a terminal those are `./bin/rdesim-wsl prepare`, `build`, `run`, and `open`. `prepare`, `run`, and `open` take the same `--case` option. `build` and `test` do not.
+Four separate tasks remain if you want one step only: **RDEsim: Prepare case**, **RDEsim: Build solver**, **RDEsim: Run annulus2D**, and **RDEsim: Open latest result in Windows ParaView**. From a terminal those are `./bin/rdesim-wsl prepare`, `build`, `run`, and `open`. `prepare`, `run`, and `open` take the same `--case` option. `build` and `test` do not. **RDEsim: Cell structure view** runs `./bin/rdesim-wsl cells`.
 
-**RDEsim: Run tests** runs `./bin/rdesim-wsl test`. That sources the OpenFOAM 14 bashrc, runs `Allwmake`, runs `python3 -m unittest tests.test_rdesim`, then `blockMesh` and `foamRun` on `cases/annulus2D`. It removes an earlier result time folder first and keeps `0/`. It stops at the first failure and prints the time folder `foamRun` wrote.
+**RDEsim: Run tests** runs `./bin/rdesim-wsl test`. That sources the OpenFOAM 14 bashrc, runs `Allwmake`, runs `python3 -m unittest tests.test_rdesim`, then `blockMesh` and `foamRun` on `cases/annulus2D`. It removes an earlier result time folder first and keeps `0/`. It stops at the first failure and prints the time folder `foamRun` wrote. `sh tests/test_paraview_launch.sh` checks the ParaView launch messages with stub `powershell.exe` and `tasklist.exe`. It does not start a real ParaView.
 
-The open task looks for `paraview.exe` under `C:\Program Files\ParaView*\bin`, `Program Files (x86)`, and a per-user `AppData\Local` install. A folder named `ParaView 6.2.0` matches that pattern. Set `RDESIM_PARAVIEW_EXE` to the full path of `paraview.exe` if yours lives somewhere else. The script prints that path, then starts ParaView with `powershell.exe` `Start-Process` (or `cmd.exe /c start` if PowerShell is missing) so the window belongs to the Windows session. It does not treat a WSL process id as success.
+The scripts look for the OpenFOAM 14 bashrc at `/opt/openfoam14/etc/bashrc`, then `~/OpenFOAM/OpenFOAM-14/etc/bashrc`, and stop if neither file exists.
 
-Colour **p** first, then **T**, **rho**, **U**, and **lambda**. **e** is there when the thermo model has written it. There is no separate detonation-indicator field. If `paraview.exe` starts and no window appears, reinstall ParaView on Windows. To open the case yourself, paste this into File → Open, with `<distro>` from `wsl.exe -l -q` and `<you>` your Ubuntu home:
-
-```text
-\\wsl.localhost\<distro>\home\<you>\RDEsim\cases\annulus2D\annulus2D.foam
-```
-
-The checkout includes the initial directory `0/`. A result time folder exists only after `Allrun` finishes, which **RDEsim: Run and visualize** does for you. The separate open task stops with an error if that folder is not there yet, and it does not treat `0/` as a result. The script looks for the OpenFOAM 14 bashrc at `/opt/openfoam14/etc/bashrc`, then `~/OpenFOAM/OpenFOAM-14/etc/bashrc`, and stops if neither file exists.
-
-`paraFoam` inside WSL is optional and secondary. From `cases/annulus2D`, after `. /opt/openfoam14/etc/bashrc`, `paraFoam` uses the reader shipped with OpenFOAM. The Windows ParaView task is the one to use with ParaView installed on Windows.
-
-RDEsim writes an OpenFOAM 14 case, checks that the selected model stays a hyperbolic balance law, and can repeat that case while it changes wall steps and other geometry. The flow solver is `rdeFluid`, a small module on top of the Foundation `shockFluid` solver (Kurganov–Tadmor).
-
-This is not a production RDE code. The gas is one perfect gas with one progress variable. The fuel numbers are illustrative. Nothing here has been compared with a measured detonation speed, thrust, or wave count. See [What is not physically validated](#what-is-not-physically-validated).
-
-The checkout is an ordinary git tree. Clone it on the Ubuntu distro and open that Linux path in Cursor's WSL window. `.vscode/tasks.json` holds **RDEsim: Run and visualize**, **RDEsim: Run and visualize (long)**, and the four single-step tasks. The machine that prepared the tree does not share your WSL files.
+The checkout is an ordinary git tree. Clone it on the Ubuntu distro and open that Linux path in Cursor's WSL window. `.vscode/tasks.json` holds **RDEsim: Run and visualize**, **RDEsim: Run and visualize (long)**, **RDEsim: Cell structure view**, **RDEsim: Cell structure view (fine)**, and the four single-step tasks. The machine that prepared the tree does not share your WSL files.
 
 ## Environment
 
-Locked target:
+Target setup:
 
-- Ubuntu 26.04.1 LTS (Resolute Raccoon) in WSL2, where every OpenFOAM command runs. Not Ubuntu 26.10.
+- Ubuntu 26.04.1 LTS (Resolute Raccoon) in WSL2, where every OpenFOAM command runs. Not Ubuntu 26.10. The distro name shown by `wsl.exe -l -q` is `Ubuntu-26.04`.
 - OpenFOAM Foundation 14 (released 14 July 2026), package `openfoam14`, sourced with `. /opt/openfoam14/etc/bashrc` in that WSL terminal. Not the OpenFOAM.com / Keysight line and not v2606.
-- ParaView installed on Windows. The script starts it in the Windows session and opens `\\wsl.localhost\<distro>\...\cases\annulus2D\annulus2D.foam`. A `paraFoam` session inside WSL is optional.
+- ParaView 6.2.0 installed on Windows. The script starts it in the Windows session and opens `\\wsl.localhost\<distro>\...\cases\annulus2D\annulus2D.foam`. A `paraFoam` session inside WSL is optional.
+- Cursor connected to the distro through its WSL extension, so the tasks run in Ubuntu.
 
-The install commands below are the ones published at <https://openfoam.org/download/14-ubuntu/>. Package `openfoam14` (20261008) was installed from that repository on Ubuntu 24.04 in the authoring environment, which is not the Ubuntu 26.04 WSL machine. `./Allwmake`, `blockMesh`, and `foamRun` were run there on `cases/annulus2D`. The run reached `5e-6` s and wrote time folders. Windows ParaView was not launched. The solver is the OpenFOAM 14 `shockFluid` module loaded by `foamRun` as `librdeFluidSolver.so`.
+The install commands below are the ones published at <https://openfoam.org/download/14-ubuntu/>. With OpenFOAM 14 installed, `./Allwmake` builds the solver and `blockMesh` plus `foamRun` run `cases/annulus2D`. `./bin/rdesim-wsl test` repeats that. The Windows ParaView launch is covered by `tests/test_paraview_launch.sh` with stub Windows tools only. The solver is the OpenFOAM 14 `shockFluid` module loaded by `foamRun` as `librdeFluidSolver.so`.
 
 ### Install OpenFOAM 14 on Ubuntu 26.04
 
@@ -65,7 +79,7 @@ sudo apt update
 sudo apt -y install openfoam14
 ```
 
-Confirm the pack date with `apt-cache policy openfoam14`. The July 2026 packs and the later `20260724` / `20261008` packs are the same v14 line. An optional newer source tarball, not required for the package install, is `http://dl.openfoam.org/source/14.20261008`. The Foundation page says this package also installs a `paraview` package inside Ubuntu when one is missing. That Ubuntu binary is not the viewer for this setup. Open results in the ParaView installed on Windows. The one-line fallback is the `\\wsl.localhost\` path at the top of this file.
+Confirm the pack date with `apt-cache policy openfoam14`. The July 2026 packs and the later `20260724` / `20261008` packs are the same v14 line. An optional newer source tarball, not required for the package install, is `http://dl.openfoam.org/source/14.20261008`. The Foundation page says this package also installs a `paraview` package inside Ubuntu when one is missing. That Ubuntu binary is not the viewer for this setup. Open results in the ParaView installed on Windows. The fallback is the `\\wsl$\` (or `\\wsl.localhost\`) path under [ParaView on Windows](#paraview-on-windows).
 
 Every new terminal that builds or runs a case needs the Foundation bashrc:
 
@@ -86,14 +100,14 @@ From the repository root, after sourcing the bashrc:
 
 `Allwmake` runs `wmake -s libso applications/modules/rdeFluid` and installs `librdeFluidSolver.so` under `$FOAM_USER_LIBBIN`. OpenFOAM 14 exports `FOAM_MODULES` to `$WM_PROJECT_DIR/applications/modules`. `./Allclean` removes that build. `bin/rdeFoam` is `foamRun -solver rdeFluid`. The case `controlDict` already says `solver rdeFluid;`, so `foamRun` from the case directory is enough.
 
-This module was not compiled here.
-
 ## Layout
 
 | Path | Role |
 | --- | --- |
 | `cases/annulus2D/rdeConfig` | Every case setting, in SI |
 | `fuels/<name>/fuelDict` | Fuel, oxidizer, heat release, one-step rate |
+| `bin/rdesim-wsl` | Script behind the Cursor tasks: simulate, prepare, build, run, open, test |
+| `.vscode/tasks.json` | The **RDEsim:** Cursor tasks |
 | `rdesim/` | Config reader, mesh, checks, optimization driver |
 | `applications/modules/rdeFluid/` | OpenFOAM 14 solver and acoustic wall condition |
 | `paraview/view_rde.py` | `pvbatch` script for the OpenFOAM reader |
@@ -213,6 +227,10 @@ The smoke-test `endTime` is `5e-6` s and `deltaT` is `1e-8` s. That is a short f
 
 `cases/annulus2D-long` is the same geometry and the same model. `endTime` is `2e-5` s and `writeInterval` is `2e-6` s, so the run writes 10 time folders. The annulus is `0.12` m long and the inlet sound speed is about `409` m/s. In the smoke case, pressure above `1.1` times the inlet value only reaches about `y = 0.035` m. At `2e-5` s that front is at about `y = 0.048` m. Colour **p** and step the time slider from `2e-06` to `2e-05`. **U** moves with the same front; **p** is the field that was checked. This is as far as the case stays stable. Continuing past about `2.4e-5` s makes a cell temperature non-positive, and `shockFluid` then hits a floating-point exception in the sound-speed square root. Tightening the Courant number to `0.05` and switching the reconstruction to `vanLeer` did not move that failure, so the long case keeps the smoke-test numerics. On the authoring machine `blockMesh` and `foamRun` finished this window in 2 seconds of wall time. `foamRun` reported an execution time of 1.1 seconds. The maximum Courant number stayed at about 0.20. Temperatures and densities stayed positive, and there were no NaNs.
 
+`cases/annulus2D-cells` is a straight 5 degree sector, 5.6 mm long, with 180 by 260 cells (46800). The nozzle and the wall step are off, and there is no injector recess, so the spacing stays uniform. At the 2500 K kernel the one-step chemical length is the inlet sound speed divided by the rate, not a ZND induction length. That length is 0.22 mm. The edges are about 0.022 mm, so the count is about 10.4 axial cells and 10.2 circumferential cells across it. That count is not a validated cell size. `numerics.startFrom` is `latestTime`, `writeInterval` is `5e-7` s, and `endTime` is `3e-6` s. A later `foamRun` continues from the last time folder. Run `blockMesh` again only when the mesh changes. **RDEsim: Cell structure view (fine)** runs `./bin/rdesim-wsl cells --case cases/annulus2D-cells`. `positivity` is on, with `TMin` 50.
+
+On this machine `blockMesh` and `foamRun` reached `3e-6` s in 81 s of wall time. `foamRun` reported an execution time of 80 s and exited 0. The maximum Courant number was 0.202. No field went NaN, and density stayed positive. The lowest temperature was 225 K, so the positivity guard recorded 0 cell-steps. At `3e-6` s the pressure above 1.1 times the inlet value reaches about `y = 0.0029` m. `pMax` is one bright patch at the injector end, the hot kernel spread across part of the sector. Circumferential slices of that patch are one hump, not a repeated cell pattern. That picture is a pressure history. It is not a validated cell size. `prepare` writes the `peakPressure` function object from `output.cellStructure`, on the same `5e-7` s interval as the flow fields.
+
 After a run, `rdeFluid` writes `postProcessing/rdeObjectives/objectives.dat` (latest) and a copy under the time name. It also writes `postProcessing/hyperbolicity/report` at start and stops if that check fails. The Python report in `constant/hyperbolicityReport` is the same kind of check before the solver starts.
 
 ## Optimization
@@ -225,16 +243,44 @@ A constraint whose quantity contains `.` or `[` is a config value checked before
 
 The unit test drives the same loop with `tests/stub_solver.py` so it does not need OpenFOAM. The example command stays `foamRun`.
 
+### Optimizer budget and resume
+
+Every evaluation lives in `workDirectory/eval-<fingerprint>` where the fingerprint hashes the physics of that evaluation's config (not `endTime`, `output`, or `optimization`). A finished evaluation writes `evaluation.json`. Running `optimize` again reuses finished evaluations and only runs the missing ones, so an interrupted or budget-limited search continues where it stopped. `--budget N` (or `optimization.maxNewEvaluations`) caps how many new solver runs one invocation may start; reused evaluations are free. When the budget stops the search the summary lists the deferred points and the exit status is 0 if a feasible best exists. `--fresh` ignores the stored evaluations. From the terminal: `./bin/rdesim-wsl optimize [--case PATH] [--budget N] [--fresh]`, or the Cursor task **RDEsim: Optimize (resume, with budget)**, which asks for the budget. Setting `optimization.resume` to `false` does the same.
+
+## Run folders, restart, and checkpoints
+
+`python3 -m rdesim prepare --config cases/annulus2D/rdeConfig --run-folder` (or `./bin/rdesim-wsl simulate --runs`, `prepare --runs`, `run --runs`, `open --runs`; all take `--case` too, for example `simulate --case cases/annulus2D-long --runs`; the Cursor task **RDEsim: Run and visualize (run folder, resumes)** does this for the default case; add `--fresh` to delete the earlier result times first) writes a self-contained case to `runs/<case>-<model>-<fingerprint>/`. The fingerprint hashes the physics (geometry, mesh, operating point, fuel, ignition, boundaries, numerics except `endTime`). Re-running the same config reuses the folder and sets `startFrom latestTime`, so an interrupted run or a longer `endTime` continues from the last written time. A changed physics setting makes a new folder, so earlier results are never overwritten. `python3 -m rdesim run-dir --config <rdeConfig>` prints the folder path. `runs/` is ignored by git.
+
+`output.writeInterval` is the normal write cadence. Pick a value that divides `endTime`: OpenFOAM writes only on that cadence, so the final state is lost if `endTime` is not a multiple of it. `output.checkpoint` (`{"enabled": true, "writeControl": "clockTime", "writeInterval": 600}`; `timeStep`, `runTime`, `cpuTime` also work) adds a `writeObjects` function object that writes restart fields at that cadence in addition. A checkpoint-only time folder has the solution fields and restarts correctly; it need not have every output field. `output.startFrom` accepts `startTime` (default), `latestTime`, or `firstTime`. `numerics.startFrom` (used by the fine-channel case) takes the same values and wins when both are set. Neither changes the run folder fingerprint.
+
+## Reaction models
+
+`reaction.model` in `rdeConfig` (or `--model NAME` on `prepare`, `check`, `optimize`, `./bin/rdesim-wsl`, or the Cursor task **RDEsim: Run and visualize (choose reaction model)**) selects the source terms. Without a `reaction` dictionary the model is `oneStepProgress`, the original single progress variable, and the case files and results are unchanged.
+
+```
+reaction
+{
+    model   twoStep;    // oneStepProgress | twoStep
+}
+```
+
+`twoStep` adds an induction variable `xi` (0 to 1, no heat) followed by heat release `lambda` that starts where `xi = 1`. Its five numbers are in `fuels/<name>/fuelDict` under `twoStep` (`inductionA`, `inductionTa`, `releaseA`, `releaseTa`, `releaseOrder`); override them with `fuelOverrides`. The `hydrogen-air` values come from a fit to Burke 2012 ignition delays (20 bar, 1400 to 1900 K, within 7 %) and are not a validated detonation-structure model; the comment in that file lists exactly what was fitted. Cost: one extra transported scalar, so roughly the one-step cost per time step. It resolves a much shorter induction zone than the one-step example, so a cell size that is fine for one-step may be too coarse for it.
+
+Limits that apply to both: one perfect gas with one `gamma` and a constant `q`. For the example mixture the model's own Chapman-Jouguet speed is 2627 m/s; the real H2-air value is about 1975 m/s (see `docs/reaction-models-design.md`). They describe a hotter, faster wave than the real mixture.
+
+Sanity check of the heat release and flux scheme in 1D: `./bin/rdesim-wsl cjcheck --model twoStep` (or `python3 -m rdesim.cjcheck --config cases/annulus2D/rdeConfig --model twoStep --case runs/cjcheck`). It writes a straight tube, ignites one end, runs `foamRun` and compares the lead-shock speed with the perfect-gas Chapman-Jouguet speed. With the defaults (6000 cells of 20 micrometres, 0.12 m) it takes about 2.5 minutes. It is a self-consistency check at one resolution, not a validation against measurements and not a cell-size check.
+
 ## ParaView on Windows
 
 **RDEsim: Run and visualize** asks Windows to start ParaView after the run. The separate task **RDEsim: Open latest result in Windows ParaView** does only that launch. Both print the `paraview.exe` path, the exact `Start-Process` or `cmd.exe /c start` command, and its exit code. After a short wait they run `tasklist.exe /FI "IMAGENAME eq paraview.exe"`. The line `Windows reports paraview.exe is running.` is printed only when that list contains `paraview.exe`. A WSL pid is not a running ParaView.
 
-The script tries the path from `wslpath -w` first, then `\\wsl.localhost\<distro>\...`, then `\\wsl$\<distro>\...`, and stops at the first one that produces a Windows `paraview.exe` process. Set `RDESIM_PARAVIEW_EXE` if the executable is not under `Program Files`, `Program Files (x86)`, or `AppData\Local`.
+The script tries the path from `wslpath -w` first, then `\\wsl.localhost\<distro>\...`, then `\\wsl$\<distro>\...`, and stops at the first one that produces a Windows `paraview.exe` process. A folder named `ParaView 6.2.0` matches. Set `RDESIM_PARAVIEW_EXE` if the executable is not under `Program Files`, `Program Files (x86)`, or `AppData\Local`.
 
-If Task Manager still has no `paraview.exe`, the script says the launch failed, prints the command it ran, and prints this fallback. If `paraview.exe` starts and no window appears, reinstall ParaView on Windows. Paste the path into ParaView's File → Open. Replace `<distro>` with the name from `wsl.exe -l -q` (for example `Ubuntu-26.04`). Replace `<you>` with the Ubuntu home directory:
+If Task Manager still has no `paraview.exe`, the script says the launch failed, prints the command it ran, and prints this fallback (first the `\\wsl.localhost\` form, then the `\\wsl$\` form). If `paraview.exe` starts and no window appears, reinstall ParaView on Windows. Paste the path into ParaView's File → Open. Replace `<distro>` with the name from `wsl.exe -l -q` (for example `Ubuntu-26.04`). Replace `<you>` with the Ubuntu home directory:
 
 ```text
 \\wsl.localhost\<distro>\home\<you>\RDEsim\cases\annulus2D\annulus2D.foam
+\\wsl$\<distro>\home\<you>\RDEsim\cases\annulus2D\annulus2D.foam
 ```
 
 That file is the OpenFOAM reader stub. It is in the checkout before any run. The mesh and fields come from the case next to it. Colour these cell fields, in this order when you want to see the wave:
@@ -245,7 +291,7 @@ That file is the OpenFOAM reader stub. It is in the checkout before any run. The
 4. **U** — velocity
 5. **lambda** — progress variable (`0` unburned, `1` burned)
 
-The initial directory `0/` is already in the checkout. A later time folder, the one you step to after the start, exists only after **RDEsim: Run annulus2D** (`Allrun`) in WSL. The open task will not start ParaView until that folder is there. **e** (sensible internal energy) is there when the solver has written it. There is no extra detonation-indicator field. The wave, if the short window produces one, is the jump in **p**, **T**, **rho**, and **lambda**.
+The initial directory `0/` is already in the checkout. A later time folder, the one you step to after the start, exists only after **RDEsim: Run and visualize** or **RDEsim: Run annulus2D** (`Allrun`) in WSL. The open task will not start ParaView until that folder is there. **e** (sensible internal energy) is there when the solver has written it. There is no extra detonation-indicator field. The wave, if the short window produces one, is the jump in **p**, **T**, **rho**, and **lambda**.
 
 `VTK/geometryBlocks.vtk` is one hex per block (VTK cell type 12). It is the block outline, not the mesh `blockMesh` builds. Use `annulus2D.foam` for the fields.
 
@@ -256,6 +302,16 @@ paraFoam
 ```
 
 `pvbatch paraview/view_rde.py cases/annulus2D` is the same kind of optional WSL path. It was not run here. There is no `.pvsm` state file, because those files embed absolute paths. The Windows `\\wsl.localhost\` path above is the manual fallback. This environment cannot start a real Windows ParaView; the launch text was checked with stub `powershell.exe` and `tasklist.exe` only.
+
+## Cell structure and mesh resolution
+
+`output.cellStructure` in `rdeConfig` sets the write control for a `peakPressure` function object. Each cell stores `pMax`, the running maximum of pressure, and `tAtPMax`, the time that maximum occurred. Change `writeControl` and `writeInterval` there if you want those fields on a different schedule from the flow fields.
+
+**RDEsim: Cell structure view** prints the mesh-resolution report and runs `pvbatch` on `paraview/cell_structure.py`. The script writes a grey image of `pMax` and a wireframe of the mesh to `postProcessing/cellStructure/`. If Windows `paraview.exe` is installed, the task uses `pvbatch.exe` beside it. Otherwise it uses `pvbatch` on `PATH`.
+
+The length in `constant/meshResolution` is the inlet sound speed divided by the one-step rate. It is not a ZND induction length and not a cell width from a detonation database. At the 2500 K kernel that length is 0.22 mm. The median axial edge on the example mesh is 2.6 mm, which is 0.086 cells across that length. The report warns that the grid is too coarse for detonation cells. A reactive Euler model with one progress variable tends to make weak or irregular cells even when the mesh is fine.
+
+The 5e-6 s smoke run wrote `pMax` and `tAtPMax` in each time folder. `pMax` runs from about 1.01e5 Pa to 6.52e5 Pa and stays high only inside the hot kernel, about `y` ≤ 0.033 m. Around the circumference it is two broad humps, not a repeated cell pattern. The grey image shows that same patch. It is a pressure history. It is not a measured cell size. Those images were rendered here with Linux `/usr/bin/pvbatch`. Windows `pvbatch.exe` was not run.
 
 ## Equations
 
@@ -296,6 +352,16 @@ Quarter-wave and groove reactive impedances are reported in `constant/acousticRe
 
 A hard wall is `|R| → 1` for a large real `Z`. A soft wall is `R = -1` at `Z = 0`. `Z = rho c` at normal incidence gives `R = 0`. The same `Z` at 60 degrees gives `R = -1/3`.
 
+## Temperature positivity
+
+`shockFluid::fluxPredictor` evaluates `sqrt(gamma R T)`. A non-positive cell temperature is a floating-point exception, not a failed convergence message. On `annulus2D-long` that happened just after `2.4e-5` s. The failing cell sat on the injector face: pressure had fallen to about 1 kPa, speed was about 1100 m/s, and the one-step source in that cell was zero. The momentum update had put more kinetic energy in the cell than `e + 1/2|U|^2` could support at positive temperature. Tightening the Courant number or switching the limiter from vanAlbada to vanLeer did not move that time.
+
+`positivity` in `rdeConfig` is the switch. With `enabled yes`, a cell that would fall below `TMin` has `|U|` reduced and sensible energy raised by the same amount, so `e + 1/2|U|^2` is unchanged. Energy is added only when the cell cannot reach `TMin` even at rest. The log line `Positivity guard` and `postProcessing/positivity/activations.dat` count those cell-steps. Omit the dictionary and the Kurganov update is unchanged. `chemistry.TFloor` is only the argument of the Arrhenius exponential. It is not this floor.
+
+The example uses `TMin 50`. That is below the inlet temperature and below the 244 K dip seen on the coarse mesh before the crash. It is a numerical floor, not a measured gas temperature.
+
+With that switch, `annulus2D-long` was continued from the healthy `2e-5` s fields to `1e-4` s. `foamRun` took 3.75 s and exited 0. The maximum Courant number stayed at about 0.20. No field went NaN, and density stayed positive. The guard scaled `|U|` in 78 cell-steps, two cells at a time, from `2.86e-5` s to `3.01e-5` s, and added energy in none of them. At `4e-5` s the hot products reached about `y = 0.09` m with fresh gas still ahead. By `1e-4` s those products filled the 0.12 m channel. Final temperature was 247 K to 4590 K. This is not a Chapman–Jouguet speed.
+
 ## Validation: H2-air detonation tube
 
 `cases/detonationTubeH2` checks the solver and the one-step model against numbers computed from detailed chemistry for stoichiometric H2-air at 101325 Pa and 300 K, and calibrates the one-step fuel to them. It is a 1D tube, closed at one end, with a burnt-gas kernel that starts the wave.
@@ -333,7 +399,7 @@ Not verified, and not invented: a measured ZND induction length and a measured C
 - `chemistry.Ta` is set so that the reduced activation energy of the model's own ZND profile equals the target in `validationConfig` (5, see below).
 - `chemistry.A` is set so that the model's length to half heat release equals the reference 0.2734 mm.
 
-Nothing is hardcoded in C++ or Python. The heat release, activation temperature and pre-exponential factor are read from the fuel file by both the solver and the theory module `rdesim/detonation.py`.
+The `twoStep` block of the original file is copied unchanged into the calibrated file. The calibration is for the `oneStepProgress` model only, and `twoStep` is not calibrated or validated here. Nothing is hardcoded in C++ or Python. The heat release, activation temperature and pre-exponential factor are read from the fuel file by both the solver and the theory module `rdesim/detonation.py`.
 
 Why the half-release length and not the induction length: a first-order one-step model with a reduced activation energy below about 6.5 has no maximum of dT/dx behind the shock, so its induction length is not defined. The half-release length is defined for every case.
 
@@ -393,13 +459,16 @@ A match to the reference at the calibration point is a fit. It does not show tha
 
 - One-step, single-gamma, perfect-gas kinetics. Not a detailed mechanism, and not a variable-gamma product gas.
 - Hydrogen and ethylene entries are starting numbers, not a calibrated detonation chemistry.
-- The 1D detonation tube in `cases/detonationTubeH2` compares the calibrated fuel with Chapman–Jouguet speed, pressure, temperature and half-release length for stoichiometric H2-air at 1 atm and 300 K, see [Validation](#validation-h2-air-detonation-tube). That is a calibration at one point. The annulus cases, cell size, wave count, thrust, other fuels and other conditions are not compared. The original `hydrogen-air` fuel numbers give a CJ speed 33% too high.
+- `cjcheck` compares a 1D wave with the model's own Chapman–Jouguet speed only. The 1D tube in `cases/detonationTubeH2` compares a calibrated `hydrogen-air-validation` fuel with Chapman–Jouguet speed, pressure, temperature and half-release length computed with Cantera for stoichiometric H2-air at 1 atm and 300 K, see [Validation](#validation-h2-air-detonation-tube). That is a calibration at one point, not a prediction. The annulus cases, cell size, wave count, thrust, the `twoStep` model, other fuels and other conditions are not compared with measurements. The original `hydrogen-air` one-step numbers give a CJ speed 33% too high.
+- `pMax` is a pressure history. On the example mesh it is the kernel footprint, not a measured cell size. The chemical length in `constant/meshResolution` is inlet sound speed over the one-step rate.
+- The `twoStep` constants are a fit to ignition delay and release duration, not a calibrated structure model. The one-step and two-step models share one gamma and one `q`, so both have a CJ speed (2627 m/s for the example) far above the real H2-air value.
 - The 2D unwrapped mesh does not resolve radial steps or the nozzle wall.
 - The 3D mesh does not resolve discrete injector slots.
 - Acoustics are lumped. Cavities are not meshed. The Helmholtz ODE is explicit Euler and is not a proven stable integrator for every `deltaT`.
 - The example end time is a smoke window.
 - The 2D unwrapped `annulus2D` case was meshed with `blockMesh` and advanced with `foamRun` to `5e-6` s on OpenFOAM 14. 3D arc edges and the laminar Fourier dictionary were not executed.
 - A CFL warning is about the explicit flux, not about whether a detonation will form.
+- `positivity.TMin` stops a cell temperature from crossing that floor by scaling velocity. It is not a physical wall temperature, and a run that reports activations has been altered in those cells.
 
 ## License
 

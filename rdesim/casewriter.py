@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 from .acoustics import evaluate_acoustics
-from .config import ConfigError, as_bool
+from .config import ConfigError, as_bool, reaction_model
 from .foamdict import format_data, format_number, render_entries, write_file
 from .geometry import build_profile
 from .hyperbolicity import check_hyperbolicity
 from .mesh import build_mesh
 from .mixture import inlet_speed, mesh_velocity, mixture_from_config, velocity_components
+from .resolution import resolution_report
 from .vtkwrite import write_blocks
 
 
@@ -34,6 +36,7 @@ def prepare_case(config: dict, case_dir: str | Path) -> dict:
         False,
     )
     prepared["_boundaryNames"] = _collect_boundary_names(mesh)
+    prepared["_restartFields"] = _extra_scalars(config)
     _write_tree(case_dir, prepared, state, profile, mesh, acoustics, report)
     return {
         "case": case_dir,
@@ -99,6 +102,8 @@ def _write_tree(case_dir, config, state, profile, mesh, acoustics, report) -> No
     write_blocks(case_dir / "VTK" / "geometryBlocks.vtk", mesh.hexes)
     _scripts(case_dir)
     (case_dir / "constant" / "hyperbolicityReport").write_text(report.text() + "\n", encoding="utf-8")
+    resolution = resolution_report(config)
+    (case_dir / "constant" / "meshResolution").write_text(resolution.text + "\n", encoding="utf-8")
 
 
 def _control(config) -> str:
@@ -107,10 +112,11 @@ def _control(config) -> str:
     adjust = "yes" if as_bool(numerics["adjustTimeStep"]) else "no"
     compression = "on" if as_bool(output["writeCompression"]) else "off"
     modifiable = "yes" if as_bool(numerics["runTimeModifiable"]) else "no"
+    start_from = numerics.get("startFrom", output.get("startFrom", "startTime"))
     lines = [
         "solver          rdeFluid;",
         "",
-        "startFrom       startTime;",
+        f"startFrom       {start_from};",
         f"startTime       {format_number(numerics['startTime'])};",
         "stopAt          endTime;",
         f"endTime         {format_number(numerics['endTime'])};",
@@ -135,8 +141,64 @@ def _control(config) -> str:
     ]
     for objective in config["raw"]["output"]["objectives"]:
         lines.extend(_function_object(objective, output))
+    peak = _peak_pressure_function(output)
+    if peak:
+        lines.append(peak)
+    lines.extend(_checkpoint_function(config, output))
     lines.append("}")
     return "\n".join(lines) + "\n"
+
+
+def _peak_pressure_function(output) -> str:
+    block = output.get("cellStructure")
+    if not isinstance(block, dict):
+        block = {}
+    enabled = as_bool(block["enabled"]) if "enabled" in block else True
+    if not enabled:
+        return ""
+    control = block.get("writeControl", output["writeControl"])
+    interval = format_number(block.get("writeInterval", output["writeInterval"]))
+    return f"""    peakPressure
+    {{
+        type            peakPressure;
+        libs            ("librdeFluidSolver.so");
+        enabled         yes;
+        executeAtStart  no;
+        executeControl  timeStep;
+        executeInterval 1;
+        writeControl    {control};
+        writeInterval   {interval};
+    }}"""
+
+
+def _extra_scalars(config) -> list[str]:
+    """Transported scalars the selected reaction model adds to lambda."""
+    if reaction_model(config) == "twoStep":
+        return ["xi"]
+    return []
+
+
+def _checkpoint_function(config, output) -> list[str]:
+    """Extra restart points on their own clock, for long runs.
+
+    OpenFOAM has one write control for the regular time folders. This function
+    object writes only the fields a restart needs, at its own interval, so a
+    run can checkpoint every few wall-clock minutes while the regular output
+    keeps the simulated-time spacing used for visualisation.
+    """
+    checkpoint = output.get("checkpoint")
+    if not isinstance(checkpoint, dict) or not as_bool(checkpoint["enabled"]):
+        return []
+    fields = " ".join(["p", "T", "U", "lambda"] + list(config.get("_restartFields", [])))
+    interval = format_number(checkpoint["writeInterval"])
+    return [f"""    checkpoint
+    {{
+        type            writeObjects;
+        libs            ("libutilityFunctionObjects.so");
+        writeControl    {checkpoint['writeControl']};
+        writeInterval   {interval};
+        objects         ({fields});
+    }}"""]
 
 
 def _function_object(objective, output) -> list[str]:
@@ -182,6 +244,9 @@ def _schemes(config) -> str:
     numerics = config["raw"]["numerics"]
     scalar = _scheme(numerics["reconstructScalar"])
     vector = _scheme(numerics["reconstructVector"])
+    extra_schemes = "".join(
+        f"    reconstruct({name}) {scalar};\n" for name in _extra_scalars(config)
+    )
     return f"""fluxScheme      {_scheme(numerics["fluxScheme"])};
 
 ddtSchemes
@@ -212,7 +277,7 @@ interpolationSchemes
     reconstruct(T)  {scalar};
     reconstruct(e)  {scalar};
     reconstruct(lambda) {scalar};
-    flux(rhoU)      {_scheme(numerics["fluxInterpolation"])};
+{extra_schemes}    flux(rhoU)      {_scheme(numerics["fluxInterpolation"])};
 }}
 
 snGradSchemes
@@ -223,7 +288,17 @@ snGradSchemes
 
 
 def _solution(config) -> str:
-    return render_entries(config["raw"]["numerics"]["fvSolution"]) + "\n"
+    solution = copy.deepcopy(config["raw"]["numerics"]["fvSolution"])
+    solvers = solution.get("solvers") if isinstance(solution, dict) else None
+    if isinstance(solvers, dict):
+        # Extra scalars solve like lambda: a diagonal system from the explicit flux.
+        for name in _extra_scalars(config):
+            for suffix in ("", "Final"):
+                solvers.setdefault(
+                    name + suffix,
+                    copy.deepcopy(solvers.get("lambda" + suffix, {"solver": "diagonal"})),
+                )
+    return render_entries(solution) + "\n"
 
 
 def _openfoam_mol_weight(state) -> float:
@@ -280,6 +355,25 @@ def _momentum(config) -> str:
     return "simulationType  laminar;\n"
 
 
+def _model_entries(config, chemistry) -> list[str]:
+    model = reaction_model(config)
+    if model == "oneStepProgress":
+        return [
+            "    A                      " + format_number(chemistry["A"]) + ";",
+            "    beta                   " + format_number(chemistry["beta"]) + ";",
+            "    Ta                     " + format_number(chemistry["Ta"]) + ";",
+            "    TRef                   " + format_number(chemistry["TRef"]) + ";",
+            "    ignitionTemperature    " + format_number(chemistry["ignitionTemperature"]) + ";",
+        ]
+    if model == "twoStep":
+        two = config["fuel"]["twoStep"]
+        return [
+            f"    {key:<22} {format_number(two[key])};"
+            for key in ("inductionA", "inductionTa", "releaseA", "releaseTa", "releaseOrder")
+        ]
+    raise ConfigError(f"No rdeProperties writer for reaction model '{model}'")
+
+
 def _properties(config, state) -> str:
     chemistry = state.chemistry
     hyper = config["raw"]["hyperbolicity"]
@@ -288,16 +382,13 @@ def _properties(config, state) -> str:
         "flowModel          " + numerics["flowModel"] + ";",
         "equationOfState    " + state.equation_of_state + ";",
         "ddtScheme          " + numerics["ddtScheme"] + ";",
+        "reactionModel      " + reaction_model(config) + ";",
         "",
         "chemistry",
         "{",
-        "    model                  " + chemistry["model"] + ";",
-        "    A                      " + format_number(chemistry["A"]) + ";",
-        "    beta                   " + format_number(chemistry["beta"]) + ";",
-        "    Ta                     " + format_number(chemistry["Ta"]) + ";",
-        "    TRef                   " + format_number(chemistry["TRef"]) + ";",
+        "    model                  " + reaction_model(config) + ";",
+    ] + _model_entries(config, chemistry) + [
         "    TFloor                 " + format_number(chemistry["TFloor"]) + ";",
-        "    ignitionTemperature    " + format_number(chemistry["ignitionTemperature"]) + ";",
         "    lambdaMin              " + format_number(chemistry["lambdaMin"]) + ";",
         "    lambdaMax              " + format_number(chemistry["lambdaMax"]) + ";",
         "    q                      " + format_number(state.heat_release) + ";",
@@ -310,6 +401,7 @@ def _properties(config, state) -> str:
         render_entries(hyper, indent=1),
         "}",
         "",
+        _positivity_block(config),
         "objectives",
         "(",
     ]
@@ -319,6 +411,22 @@ def _properties(config, state) -> str:
         lines.append("    }")
     lines.append(");")
     return "\n".join(lines) + "\n"
+
+
+def _positivity_block(config) -> str:
+    block = config["raw"].get("positivity")
+    if not isinstance(block, dict):
+        return ""
+    enabled = "yes" if as_bool(block["enabled"]) else "no"
+    lines = [
+        "positivity",
+        "{",
+        "    enabled    " + enabled + ";",
+    ]
+    if "TMin" in block:
+        lines.append("    TMin       " + format_number(block["TMin"]) + ";")
+    lines.extend(["}", ""])
+    return "\n".join(lines)
 
 
 def _wall(profile) -> str:
@@ -449,6 +557,19 @@ def _fields(zero, config, state, mesh, acoustics) -> None:
         lambda_internal,
         _lambda_boundaries(config, mesh),
     ))
+    if "xi" in _extra_scalars(config):
+        # A progress kernel is already past induction, so xi starts at 1 there.
+        xi_internal = _zoned_scalar(
+            0.0,
+            dict(ignition, xiKernel=1.0),
+            "xiKernel",
+            ignition["type"] in ("progressKernel", "hotProgressKernel"),
+        )
+        write_file(zero / "xi", "volScalarField", "xi", _scalar_field(
+            "[0 0 0 0 0 0 0]",
+            xi_internal,
+            _lambda_boundaries(config, mesh, inlet_key="inletXi"),
+        ))
     _ = p_internal
     _ = operating
 
@@ -648,8 +769,8 @@ def _acoustic_bc(config, acoustics) -> str:
     return "\n".join(lines)
 
 
-def _lambda_boundaries(config, mesh) -> dict:
-    inlet = format_number(config["raw"]["ignition"]["inletLambda"])
+def _lambda_boundaries(config, mesh, inlet_key="inletLambda") -> dict:
+    inlet = format_number(config["raw"]["ignition"].get(inlet_key, 0))
     result = {}
     for name in _boundary_names(config):
         if name in ("front", "back"):

@@ -75,4 +75,32 @@ chemistry
     lambdaMax               1;
 }
 
+// Two-step induction-then-heat-release model, used when rdeConfig has
+//   reaction { model twoStep; }
+// (Short-Sharpe style, Short and Sharpe, Combust. Theory Model. 7 (2003) 401.)
+//   d(xi)/dt     = inductionA exp(-inductionTa/T)           xi runs 0 -> 1, no heat
+//   d(lambda)/dt = releaseA exp(-releaseTa/T) (1-lambda)^releaseOrder   only once xi = 1
+// Heat released is q * d(lambda), with q from heatRelease.LHV and the mixture.
+// 1/inductionRate is the induction time, so xi = integral of dt/tau_ind(T).
+//
+// Provenance of the numbers below. inductionA and inductionTa are a least
+// squares fit of ln(1/tau) against 1/T to the constant-volume ignition delay
+// (maximum dT/dt) of stoichiometric H2-air from the Burke et al. 2012 mechanism
+// in Cantera 3.2, at 20 bar, T = 1400 to 1900 K. The fit is within 7 % of those
+// ignition delays over that range and only there. Script:
+// fuels/hydrogen-air/detailed/burke2012/fit_two_step.py. releaseA is
+// ln(9)/(10-90 % duration of the temperature rise) at 20 bar: that duration is
+// 0.27 to 0.30 microseconds for T = 1300 to 1900 K, so releaseTa is 0. The
+// chain-branching release of the real mechanism is not first order, so this
+// matches its duration, not its shape. They are a starting point to edit.
+
+twoStep
+{
+    inductionA      4.49e8;
+    inductionTa     8882;
+    releaseA        8.0e6;
+    releaseTa       0;
+    releaseOrder    1;
+}
+
 // ************************************************************************* //
