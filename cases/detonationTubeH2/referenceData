@@ -1,0 +1,95 @@
+// Reference data for the stoichiometric H2-air detonation tube.
+// Written by tools/validation_reference.py. Edit that script, not this file.
+// cantera 3.2.0; numpy 2.5.4
+//
+// computed.<mech>   Cantera: equilibrium CJ state, frozen vN state, steady ZND profile.
+// computed.cea      NASA CEA CJ state: an independent check of the CJ numbers only.
+// literature        Cell width, transcribed from the Shepherd detonation database.
+// Not available and not invented: a measured induction length, a measured CJ pressure.
+
+computed
+{
+    initialTemperature    300;
+    initialPressure       101325;
+    composition           "H2:2, O2:1, N2:3.76 (mole ratio; phi = 1)";
+    thetaShockSpeedDelta  0.02;
+    gri30
+    {
+        mechanism         gri30.yaml;
+        rho0              0.849472;
+        c0                408.774;
+        W0                20.9116;
+        gamma0            1.40088;
+        DCJ               1969.02;
+        pCJ               1.5692e+06;
+        TCJ               2944.74;
+        rhoCJ             1.5325;
+        WCJ               23.9113;
+        pvN               2.78249e+06;
+        TvN               1531.57;
+        rhovN             4.5693;
+        xIndTmax          0.000244048;
+        tIndTmax          6.48517e-07;
+        xIndThermicity    0.000244993;
+        tIndThermicity    6.50401e-07;
+        EaOverR           15399.8;
+        theta             10.0549;
+        tIndConstPReactor 6.5145e-07;
+        EaOverRHalf       14319.9;
+        thetaHalf         9.34981;
+        xHeatRelease50    0.000273367;
+        tHeatRelease50    7.00707e-07;
+        xHeatRelease90    0.000813003;
+    }
+    h2o2
+    {
+        mechanism         h2o2.yaml;
+        rho0              0.849472;
+        c0                408.774;
+        W0                20.9116;
+        gamma0            1.40088;
+        DCJ               1976.32;
+        pCJ               1.57792e+06;
+        TCJ               2964.68;
+        rhoCJ             1.53069;
+        WCJ               23.9119;
+        pvN               2.80361e+06;
+        TvN               1540.17;
+        rhovN             4.57828;
+        xIndTmax          0.000231762;
+        tIndTmax          6.14567e-07;
+        xIndThermicity    0.000231762;
+        tIndThermicity    6.14567e-07;
+        EaOverR           15017.2;
+        theta             9.75035;
+        tIndConstPReactor 6.16586e-07;
+        EaOverRHalf       13921.7;
+        thetaHalf         9.03906;
+        xHeatRelease50    0.000261558;
+        tHeatRelease50    6.67488e-07;
+        xHeatRelease90    0.000846986;
+    }
+    cea
+    {
+        version           3.3.4;
+        DCJ               1968.44;
+        pCJ               1.5683e+06;
+        TCJ               2942.46;
+        rhoCJ             1.53247;
+    }
+}
+
+literature
+{
+    database    "M. Kaneshige and J.E. Shepherd, Detonation database, GALCIT Report FM97-8, 1997;
+                 https://shepherd.caltech.edu/detn_db/html/db_121.html (Cell Width - H2 Fuel)";
+    cellWidthUnit    mm;
+    cellWidth
+    (
+        { file at14.txt; phi 1.0233; pressureKPa 100; temperatureK 300; width 8.1875; reference "Ciccarelli, Ginsberg, Boccio, Economos, Sato, Kinoshita, Combust. Flame 99(2):212-220, 1994"; }
+        { file ja20a.txt; phi 1; pressureKPa 100; temperatureK 300; width 8; reference "Ciccarelli et al., NUREG/CR-6391 (BNL-NUREG-52482), Brookhaven National Laboratory, 1997"; }
+        { file H2-Air1.txt; phi 1; pressureKPa 101.3; temperatureK 293; width 15.1; reference "Guirao, Knystautas, Lee, Benedick, Berman, 19th Symp. (Int.) Combust., pp. 583-590, 1982"; }
+        { file at5a.txt; phi 1; pressureKPa 100.834; temperatureK 293; width 11.0429; reference "Stamps and Tieszen, Combust. Flame 83(3):353-364, 1991"; }
+        { file at5a.txt; phi 1; pressureKPa 101.452; temperatureK 293; width 9.2068; reference "Stamps and Tieszen, Combust. Flame 83(3):353-364, 1991"; }
+    );
+}

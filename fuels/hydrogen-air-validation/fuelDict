@@ -1,0 +1,137 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  14
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      fuelDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Calibrated copy of fuels/hydrogen-air/fuelDict for the detonation-tube validation.
+// Only heatRelease.LHV, chemistry.A and chemistry.Ta differ from the original.
+// Written by `python3 -m rdesim.validation calibrate --write`; see the
+// calibration block at the end of this file. Valid for stoichiometric H2-air
+// at 300 K and 1 atm. Not a predictive detonation chemistry.
+
+fuel
+{
+    name        H2;
+    molWeight   0.002016;
+}
+
+oxidizer
+{
+    oxygenMoleFraction  0.21;
+    species
+    (
+        { name O2; molWeight 0.031998; moleFraction 0.21; }
+        { name N2; molWeight 0.028014; moleFraction 0.79; }
+    );
+}
+
+stoichiometry
+{
+    // 2 H2 + O2 -> products, with N2 carried in the oxidizer mixture.
+    nuFuel      2;
+    nuOxygen    1;
+}
+
+heatRelease
+{
+    // Lower heating value of the fuel, J/kg of fuel.
+    LHV         6.48544e+07;
+}
+
+thermo
+{
+    model               hConst;
+    equationOfState     perfectGas;
+    composition         frozenReactants;
+    gamma               1.4;
+    hf                  0;
+    productMolWeight    0.024;
+    productGamma        1.24;
+}
+
+transport
+{
+    // Used only when numerics.flowModel is navierStokes.
+    mu              1.8e-5;
+    Pr              0.7;
+}
+
+chemistry
+{
+    model                   oneStepProgress;
+    A                       3.00173e+08;
+    beta                    0;
+    Ta                      10478.8;
+    TRef                    300;
+    TFloor                  200;
+    ignitionTemperature     1200;
+    lambdaMin               0;
+    lambdaMax               1;
+}
+
+// Two-step induction-then-heat-release model, used when rdeConfig has
+//   reaction { model twoStep; }
+// (Short-Sharpe style, Short and Sharpe, Combust. Theory Model. 7 (2003) 401.)
+//   d(xi)/dt     = inductionA exp(-inductionTa/T)           xi runs 0 -> 1, no heat
+//   d(lambda)/dt = releaseA exp(-releaseTa/T) (1-lambda)^releaseOrder   only once xi = 1
+// Heat released is q * d(lambda), with q from heatRelease.LHV and the mixture.
+// 1/inductionRate is the induction time, so xi = integral of dt/tau_ind(T).
+//
+// Provenance of the numbers below. inductionA and inductionTa are a least
+// squares fit of ln(1/tau) against 1/T to the constant-volume ignition delay
+// (maximum dT/dt) of stoichiometric H2-air from the Burke et al. 2012 mechanism
+// in Cantera 3.2, at 20 bar, T = 1400 to 1900 K. The fit is within 7 % of those
+// ignition delays over that range and only there. Script:
+// fuels/hydrogen-air/detailed/burke2012/fit_two_step.py. releaseA is
+// ln(9)/(10-90 % duration of the temperature rise) at 20 bar: that duration is
+// 0.27 to 0.30 microseconds for T = 1300 to 1900 K, so releaseTa is 0. The
+// chain-branching release of the real mechanism is not first order, so this
+// matches its duration, not its shape. They are a starting point to edit.
+
+twoStep
+{
+    inductionA      4.49e8;
+    inductionTa     8882;
+    releaseA        8.0e6;
+    releaseTa       0;
+    releaseOrder    1;
+}
+
+// What was calibrated. Not read by the solver. The original values are kept
+// here and in fuels/hydrogen-air/fuelDict.
+calibration
+{
+    reference       "Cantera gri30.yaml CJ state and steady ZND profile, tools/validation_reference.py";
+    mixture         "stoichiometric H2-air, p0 101325 Pa, T0 300 K";
+    targets
+    {
+        waveSpeed           1969.02;   // m/s, CJ speed
+        halfHeatReleaseLength 0.000273367;   // m, distance to half the heat release in the ZND profile
+        reducedActivationEnergy 5;   // Ea/(R T_vN) of the time to half heat release
+        referenceReducedActivationEnergy 9.34981;   // the Cantera value, for comparison
+    }
+    original
+    {
+        LHV     1.2e+08;
+        A       1e+08;
+        Ta      10000;
+    }
+    calibrated
+    {
+        LHV     6.48544e+07;
+        A       3.00173e+08;
+        Ta      10478.8;
+    }
+    note            "LHV is q/Yf with q set by the CJ speed for one gamma. It is an effective number, about half the real H2 lower heating value, that absorbs what one gamma of 1.4 cannot represent. It is not a heat of reaction.";
+}
+
+// ************************************************************************* //

@@ -2,6 +2,7 @@
 # Actions for the WSL Cursor tasks. Linux paths only.
 #   ./bin/rdesim-wsl simulate [--case cases/annulus2D-long]
 #   ./bin/rdesim-wsl prepare|build|run|open|test|optimize|cjcheck|chemcheck [--case PATH]
+#   ./bin/rdesim-wsl validate|validate-full
 # Options after the command (--runs, --fresh, --budget also work with run,
 # prepare, open, and optimize as noted):
 #   --runs          keep this run in runs/<case>-<model>-<fingerprint>. The
@@ -29,7 +30,7 @@ FOAM_FILE="$CASE/annulus2D.foam"
 usage() {
     echo "Usage: ./bin/rdesim-wsl simulate|prepare|run|open|cells [--case PATH] [--model NAME] [--runs] [--fresh]" >&2
     echo "       ./bin/rdesim-wsl optimize [--case PATH] [--model NAME] [--fresh] [--budget N]" >&2
-    echo "       ./bin/rdesim-wsl build|test" >&2
+    echo "       ./bin/rdesim-wsl build|test|validate|validate-full" >&2
     echo "       ./bin/rdesim-wsl cjcheck [--case PATH] [--model NAME]" >&2
     echo "       ./bin/rdesim-wsl chemcheck" >&2
     echo "  simulate source OpenFOAM, prepare, build if needed, run, open ParaView" >&2
@@ -39,6 +40,8 @@ usage() {
     echo "  open     start Windows ParaView on the latest result in the case" >&2
     echo "  cells    print the mesh-resolution report and render pMax with pvbatch" >&2
     echo "  test     Allwmake, unit tests, then blockMesh and foamRun on annulus2D" >&2
+    echo "  validate      H2-air detonation tube: build if needed, run calibrated-N10, print the comparison table" >&2
+    echo "  validate-full every run in cases/detonationTubeH2/validationConfig (resolution study, original fuel)" >&2
     echo "  chemcheck 0D closed cell: detailed chemistry against a Cantera constant-volume reactor" >&2
     echo "  cjcheck  1D tube: measured detonation speed against Chapman-Jouguet for the model" >&2
     echo "  optimize run python3 -m rdesim optimize; finished evaluations are reused" >&2
@@ -469,6 +472,16 @@ cmd_test() {
     echo "$CASE_NAME wrote result time folder $time_name"
 }
 
+# H2-air detonation-tube validation against Cantera/CEA reference data. The
+# runs, tolerances and fuels are in cases/detonationTubeH2/validationConfig.
+# Exit status 1 when a gated row of the comparison table fails.
+cmd_validate() {
+    cd "$ROOT"
+    source_openfoam
+    cmd_build_if_needed
+    python3 -u -m rdesim.validation run "$@"
+}
+
 # Print the chemical-length report, then ask pvbatch to draw pMax and the mesh.
 # Windows pvbatch.exe is preferred so the same ParaView install is used.
 cmd_cells() {
@@ -628,7 +641,7 @@ case "$COMMAND" in
     simulate|prepare|run|open|cells|optimize|cjcheck|chemcheck)
         select_case "${CASE_OPT:-cases/annulus2D}"
         ;;
-    build|test)
+    build|test|validate|validate-full)
         if [ -n "$CASE_OPT" ]; then
             die "--case cannot be used with $COMMAND. The smoke case is cases/annulus2D."
         fi
@@ -647,6 +660,8 @@ case "$COMMAND" in
     open) cmd_open ;;
     cells) cmd_cells ;;
     test) cmd_test ;;
+    validate) cmd_validate ;;
+    validate-full) cmd_validate --all ;;
     optimize) cmd_optimize ;;
     cjcheck) cmd_cjcheck ;;
     chemcheck) cmd_chemcheck ;;
