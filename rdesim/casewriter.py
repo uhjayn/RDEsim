@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import shutil
 from pathlib import Path
 
 from .acoustics import evaluate_acoustics
@@ -11,6 +12,7 @@ from .foamdict import format_data, format_number, render_entries, write_file
 from .geometry import build_profile
 from .hyperbolicity import check_hyperbolicity
 from .mesh import build_mesh
+from .species import load_mechanism, mechanism_directory
 from .mixture import inlet_speed, mesh_velocity, mixture_from_config, velocity_components
 from .resolution import resolution_report
 from .vtkwrite import write_blocks
@@ -37,6 +39,8 @@ def prepare_case(config: dict, case_dir: str | Path) -> dict:
     )
     prepared["_boundaryNames"] = _collect_boundary_names(mesh)
     prepared["_restartFields"] = _extra_scalars(config)
+    if state.species is not None:
+        prepared["_species"] = state.species
     _write_tree(case_dir, prepared, state, profile, mesh, acoustics, report)
     return {
         "case": case_dir,
@@ -65,6 +69,8 @@ def _write_tree(case_dir, config, state, profile, mesh, acoustics, report) -> No
         "physicalProperties",
         _thermo(config, state),
     )
+    if reaction_model(config) == "detailed":
+        _write_detailed_files(constant, config)
     write_file(
         constant / "momentumTransport",
         "dictionary",
@@ -173,8 +179,11 @@ def _peak_pressure_function(output) -> str:
 
 def _extra_scalars(config) -> list[str]:
     """Transported scalars the selected reaction model adds to lambda."""
-    if reaction_model(config) == "twoStep":
+    model = reaction_model(config)
+    if model == "twoStep":
         return ["xi"]
+    if model == "detailed":
+        return load_mechanism(mechanism_directory(config)).names
     return []
 
 
@@ -315,7 +324,51 @@ def _openfoam_mol_weight(state) -> float:
     return openfoam_rr / state.specific_gas
 
 
+def _write_detailed_files(constant: Path, config) -> None:
+    """Mechanism data and ODE settings that physicalProperties and rdeFluid read."""
+    directory = mechanism_directory(config)
+    for name in ("thermo", "reactions"):
+        shutil.copyfile(directory / name, constant / name)
+    detailed = config["fuel"]["detailed"]
+    state_log = "yes" if as_bool(detailed.get("log", False)) else "no"
+    body = "\n".join([
+        f"TMin                    {format_number(detailed['TMin'])};",
+        f"initialChemicalTimeStep {format_number(detailed['initialChemicalTimeStep'])};",
+        f"log                     {state_log};",
+        f"fuelSpecie              {config['fuel']['fuel']['name']};",
+        f"fuelMassFractionUnburned {format_number(config['_species'][str(config['fuel']['fuel']['name'])])};",
+        "",
+        "ode",
+        "{",
+        render_entries(detailed["ode"], indent=1),
+        "}",
+        "",
+        '#include "reactions"',
+    ])
+    write_file(constant / "chemistryProperties", "dictionary", "chemistryProperties", body)
+
+
+def _thermo_detailed() -> str:
+    return """thermoType
+{
+    type            hePsiThermo;
+    mixture         multicomponentMixture;
+    transport       sutherland;
+    thermo          janaf;
+    energy          sensibleInternalEnergy;
+    equationOfState perfectGas;
+    specie          specie;
+}
+
+defaultSpecie N2;
+
+#include "thermo"
+"""
+
+
 def _thermo(config, state) -> str:
+    if reaction_model(config) == "detailed":
+        return _thermo_detailed()
     mu = state.mu
     return f"""thermoType
 {{
@@ -371,6 +424,8 @@ def _model_entries(config, chemistry) -> list[str]:
             f"    {key:<22} {format_number(two[key])};"
             for key in ("inductionA", "inductionTa", "releaseA", "releaseTa", "releaseOrder")
         ]
+    if model == "detailed":
+        return []
     raise ConfigError(f"No rdeProperties writer for reaction model '{model}'")
 
 
@@ -391,7 +446,9 @@ def _properties(config, state) -> str:
         "    TFloor                 " + format_number(chemistry["TFloor"]) + ";",
         "    lambdaMin              " + format_number(chemistry["lambdaMin"]) + ";",
         "    lambdaMax              " + format_number(chemistry["lambdaMax"]) + ";",
-        "    q                      " + format_number(state.heat_release) + ";",
+        "    q                      "
+        + format_number(0.0 if reaction_model(config) == "detailed" else state.heat_release)
+        + ";",
         "    sourceIntegration      " + numerics["sourceIntegration"] + ";",
         "    sourceDependsOnGradients " + hyper["sourceDependsOnGradients"] + ";",
         "}",
@@ -557,6 +614,13 @@ def _fields(zero, config, state, mesh, acoustics) -> None:
         lambda_internal,
         _lambda_boundaries(config, mesh),
     ))
+    if config.get("_species"):
+        for name, fraction in config["_species"].items():
+            write_file(zero / name, "volScalarField", name, _scalar_field(
+                "[0 0 0 0 0 0 0]",
+                f"uniform {format_number(fraction)}",
+                _lambda_boundaries(config, mesh, inlet_value=fraction),
+            ))
     if "xi" in _extra_scalars(config):
         # A progress kernel is already past induction, so xi starts at 1 there.
         xi_internal = _zoned_scalar(
@@ -769,8 +833,10 @@ def _acoustic_bc(config, acoustics) -> str:
     return "\n".join(lines)
 
 
-def _lambda_boundaries(config, mesh, inlet_key="inletLambda") -> dict:
-    inlet = format_number(config["raw"]["ignition"].get(inlet_key, 0))
+def _lambda_boundaries(config, mesh, inlet_key="inletLambda", inlet_value=None) -> dict:
+    if inlet_value is None:
+        inlet_value = config["raw"]["ignition"].get(inlet_key, 0)
+    inlet = format_number(inlet_value)
     result = {}
     for name in _boundary_names(config):
         if name in ("front", "back"):

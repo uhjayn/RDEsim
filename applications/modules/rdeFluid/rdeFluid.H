@@ -11,6 +11,8 @@
 #define rdeFluid_H
 
 #include "shockFluid.H"
+#include "multicomponentThermo.H"
+#include "constantVolumeChemistry.H"
 
 namespace Foam
 {
@@ -37,6 +39,17 @@ class rdeFluid
     scalar releaseTa_;
     scalar releaseOrder_;
     scalar inductionMargin_;
+
+    // detailed: species carried with the KT flux and Lie-split constant-volume
+    // chemistry. lambda is then a diagnostic (fuel consumed), not transported.
+    autoPtr<IOdictionary> chemistryProperties_;
+    multicomponentThermo* multicomponent_;
+    autoPtr<constantVolumeChemistry> chemistry_;
+    scalarField chemistryDeltaT_;
+    scalar chemistryTMin_;
+    bool chemistryLog_;
+    word fuelSpecie_;
+    scalar fuelMassFractionUnburned_;
 
     dimensionedScalar A_;
     scalar beta_;
@@ -70,6 +83,12 @@ class rdeFluid
     void boundPositivity();
 
     void writePositivityCount() const;
+
+    void speciesEquations();
+
+    void chemistryStep();
+
+    void initialiseDetailed();
 
     void checkHyperbolicity() const;
 

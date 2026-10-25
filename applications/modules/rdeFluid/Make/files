@@ -1,5 +1,7 @@
 rdeFluid.C
 progress.C
+detailed.C
+constantVolumeChemistry.C
 thermophysicalPredictor.C
 positivity.C
 hyperbolicity.C

@@ -138,6 +138,10 @@ void Foam::solvers::rdeFluid::writeObjectives() const
 
 void Foam::solvers::rdeFluid::postSolve()
 {
+    if (multicomponent_)
+    {
+        chemistryStep();
+    }
     writePositivityCount();
     writeObjectives();
 }

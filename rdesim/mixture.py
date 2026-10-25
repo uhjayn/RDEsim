@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 
-from .config import ConfigError, as_bool
+from .config import ConfigError, as_bool, reaction_model
 
 
 class Mixture:
@@ -99,7 +99,7 @@ def mixture_from_config(config: dict) -> Mixture:
     mu = 0.0 if flow_model == "euler" else float(fuel["transport"]["mu"])
     prandtl = float(fuel["transport"]["Pr"])
 
-    return Mixture(
+    state = Mixture(
         phi=phi,
         y_fuel=y_fuel,
         y_fuel_stoich=y_fuel_stoich,
@@ -121,7 +121,40 @@ def mixture_from_config(config: dict) -> Mixture:
         composition=composition,
         hf=float(thermo["hf"]),
         chemistry=fuel["chemistry"],
+        species=None,
     )
+    if reaction_model(config) == "detailed":
+        _apply_detailed(config, state)
+    return state
+
+
+def _apply_detailed(config: dict, state: Mixture) -> None:
+    """Replace the single-gamma properties by the mechanism's frozen mixture.
+
+    The inlet state of the detailed model is a mixture of the mechanism's
+    species at the inlet temperature. ``heat_release`` stays the fuelDict
+    figure (y_fuel * LHV) for reporting only; the detailed model takes its
+    heat release from the species formation enthalpies.
+    """
+    from .species import load_mechanism, mechanism_directory, unburned_mass_fractions
+
+    mechanism = load_mechanism(mechanism_directory(config))
+    fractions = unburned_mass_fractions(config, mechanism)
+    properties = mechanism.mixture(fractions, state.temperature)
+    if properties["gamma"] <= 1.0:
+        raise ConfigError(f"Mechanism mixture gamma is {properties['gamma']}, not above 1")
+    # The gas constant is OpenFOAM's (8314.462618 J/kmol/K), as in species.RR,
+    # so the Python state matches what the solver computes.
+    state.species = fractions
+    state.mechanism = mechanism
+    state.mol_weight = properties["weight"] / 1000.0
+    state.gamma = properties["gamma"]
+    state.specific_gas = properties["gasConstant"]
+    state.cp = properties["cp"]
+    state.cv = properties["cv"]
+    state.density = state.pressure / (state.specific_gas * state.temperature)
+    state.sound_speed = properties["soundSpeed"]
+    state.sound_speed_squared = properties["soundSpeed"] ** 2
 
 
 def inlet_speed(config: dict, state: Mixture, area: float) -> float:

@@ -65,7 +65,7 @@ def load_config(path: str | Path, model: str | None = None) -> dict:
     }
 
 
-REACTION_MODELS = ("oneStepProgress", "twoStep")
+REACTION_MODELS = ("oneStepProgress", "twoStep", "detailed")
 
 
 def reaction_model(config: dict) -> str:
@@ -504,6 +504,8 @@ def _validate_reaction(raw: dict, fuel: dict, errors: list[str]) -> None:
     if isinstance(reaction, dict) and "model" in reaction:
         _need_word(reaction, "model", "reaction.model", errors, REACTION_MODELS)
     model = reaction.get("model", "oneStepProgress") if isinstance(reaction, dict) else "oneStepProgress"
+    if model == "detailed":
+        _validate_detailed(raw, fuel, errors)
     if model == "twoStep":
         two = fuel.get("twoStep")
         if not isinstance(two, dict):
@@ -522,6 +524,37 @@ def _validate_reaction(raw: dict, fuel: dict, errors: list[str]) -> None:
                 errors.append(f"fuel.twoStep.{key} must be positive")
         if isinstance(two.get("releaseOrder"), (int, float)) and float(two["releaseOrder"]) <= 0:
             errors.append("fuel.twoStep.releaseOrder must be positive")
+
+
+def _validate_detailed(raw: dict, fuel: dict, errors: list[str]) -> None:
+    detailed = fuel.get("detailed")
+    if not isinstance(detailed, dict):
+        errors.append("reaction.model is detailed but the fuel has no 'detailed' dictionary")
+        return
+    _need_word(detailed, "mechanism", "fuel.detailed.mechanism", errors)
+    _need_number(detailed, "TMin", "fuel.detailed.TMin", errors)
+    _need_number(
+        detailed, "initialChemicalTimeStep", "fuel.detailed.initialChemicalTimeStep", errors
+    )
+    ode = _need(detailed, "ode", "fuel.detailed.ode", errors)
+    if isinstance(ode, dict):
+        _need_word(ode, "solver", "fuel.detailed.ode.solver", errors)
+        _need_number(ode, "absTol", "fuel.detailed.ode.absTol", errors)
+        _need_number(ode, "relTol", "fuel.detailed.ode.relTol", errors)
+    if raw["numerics"].get("flowModel") != "euler":
+        errors.append(
+            "reaction.model detailed supports numerics.flowModel euler only: the "
+            "mechanism files carry no viscosity or conductivity (As 0), so "
+            "navierStokes would silently stay inviscid"
+        )
+    if raw["ignition"].get("type") in ("progressKernel", "hotProgressKernel"):
+        errors.append(
+            "reaction.model detailed has no progress variable to preset; use "
+            "ignition.type none or hotKernel"
+        )
+    thermo = fuel.get("thermo")
+    if isinstance(thermo, dict) and thermo.get("equationOfState") != "perfectGas":
+        errors.append("reaction.model detailed needs fuel.thermo.equationOfState perfectGas")
 
 
 def _validate_fuel(fuel: dict, errors: list[str]) -> None:
