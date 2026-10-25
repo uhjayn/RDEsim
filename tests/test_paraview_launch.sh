@@ -100,7 +100,7 @@ run_open() {
         STUB_LOG="$STUB_LOG" \
         STUB_PARAVIEW_RUNNING="${STUB_PARAVIEW_RUNNING:-0}" \
         PATH="$STUB_BIN:/usr/bin:/bin" \
-        sh "$ROOT/bin/rdesim-wsl" open >"$OUT" 2>&1
+        sh "$ROOT/bin/rdesim-wsl" open ${EXTRA_OPEN_ARGS:-} >"$OUT" 2>&1
     code=$?
     set -e
 }
@@ -159,3 +159,29 @@ if [ -s "$STUB_LOG" ]; then
     fail "a missing executable still started PowerShell"
 fi
 echo "ok: missing RDESIM_PARAVIEW_EXE fails without a launch"
+
+RDESIM_PARAVIEW_EXE="$EXE"
+STUB_PARAVIEW_RUNNING=1
+EXTRA_OPEN_ARGS="--case cases/annulus2D"
+run_open
+[ "$code" -eq 0 ] || fail "--case cases/annulus2D exited $code"
+require "annulus2D.foam"
+reject "annulus2D-long.foam"
+echo "ok: --case cases/annulus2D keeps the short-case foam file"
+unset EXTRA_OPEN_ARGS
+
+set +e
+env PATH="$STUB_BIN:/usr/bin:/bin" sh "$ROOT/bin/rdesim-wsl" open --case cases/no-such-case >"$OUT" 2>&1
+code=$?
+set -e
+[ "$code" -ne 0 ] || fail "a missing case directory exited 0"
+require "No rdeConfig"
+echo "ok: unknown --case fails before launch"
+
+set +e
+env PATH="$STUB_BIN:/usr/bin:/bin" sh "$ROOT/bin/rdesim-wsl" test --case cases/annulus2D-long >"$OUT" 2>&1
+code=$?
+set -e
+[ "$code" -ne 0 ] || fail "test accepted --case"
+require "cannot be used with test"
+echo "ok: test stays on the short case"

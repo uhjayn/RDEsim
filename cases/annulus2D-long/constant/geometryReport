@@ -1,0 +1,27 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  14
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      geometryReport;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+topology                 unwrapped;
+dimension                2;
+radialStepsResolved      no;
+injectorSlotsResolved    yes;
+notes
+(
+    "Radial wall steps are stored in the wall profile. This mesh does not cut them into the boundary. Set domain.dimension 3, or domain.dimension 2 with domain.topology meridional, to resolve them."
+    "Unwrapped 2D domain: x is circumferential, y is axial, z is an empty numerical thickness. Injector slots and the recess are meshed."
+);
+
+// ************************************************************************* //
