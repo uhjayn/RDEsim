@@ -1,0 +1,390 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  14
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      rdeConfig;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Short straight channel for a cell-resolution try.
+// At the 2500 K kernel the one-step chemical length is 0.22 mm
+// (inlet sound speed over the one-step rate, not a ZND length).
+// This sector is 5 degrees, about 3.93 mm around, and 5.6 mm long,
+// with 180 by 260 cells so each edge is about 0.022 mm: just over
+// 10 cells across that length. It is not a measured cell size.
+// startFrom latestTime: a later foamRun continues. Do not rerun blockMesh
+// after the first mesh if you want to resume.
+
+constants
+{
+    RUniversal          8.314462618;
+}
+
+domain
+{
+    dimension           2;              // 2 or 3
+    topology            unwrapped;      // unwrapped | meridional
+    RInner              0.04;
+    ROuter              0.05;
+    axialLength         0.0056;
+    sectorAngle         5;              // degrees, narrow sector
+    theta0              0;              // degrees, 3D sector start
+    emptyThickness      0.001;          // empty-direction thickness for 2D
+    axialReference      0;              // axial station where wall angles are zero
+    unwrapRadius        mean;           // mean | inner | outer
+}
+
+mesh
+{
+    nCircumferential            180;
+    nAxial                      260;
+    nRadial                     1;
+    nCircumferentialBlocks      4;
+    axialGrading                1;
+    circumferentialGrading      1;
+    radialGrading               1;
+    minCellsPerBlock            1;
+    stationTolerance            1e-8;
+}
+
+geometry
+{
+    innerWallAngle      0;              // degrees, positive grows radius downstream
+    outerWallAngle      0;
+    widthAnchor         outer;          // inner | outer | centre
+    widthProfile
+    (
+    );
+    steps
+    (
+    );
+    nozzle
+    {
+        enabled         no;
+        start           0.09;
+        length          0.03;
+        shape           conical;        // conical | piecewise
+        anchor          outer;
+        throatFraction  0.5;
+        throatGap       0.008;
+        exitGap         0.012;
+        profile
+        (
+        );
+    }
+    injector
+    {
+        nSlots          0;
+        slotWidth       0.002;
+        recessDepth     0;
+        injectionAngle  0;              // degrees from axial toward circumferential
+        phase           0;
+    }
+}
+
+operating
+{
+    pInlet              101325;
+    TInlet              300;
+    pOutlet             101325;
+    TOutlet             300;
+    equivalenceRatio    1;
+    massFlowRate        0.003333333333; // kg/s, 5/30 of the 30 degree example
+    plenumPressure      400000;
+    plenumTemperature   300;
+    inletModel          massFlow;       // fixedVelocity | massFlow | isentropicPlenum
+    inletVelocity
+    {
+        circumferential 0;
+        axial           50;
+        radial          0;
+    }
+}
+
+fuel
+{
+    name                hydrogen-air;
+    library             fuels;
+}
+
+// Optional deep override of the selected fuelDict. Empty leaves the library entry.
+fuelOverrides
+{
+}
+
+numerics
+{
+    flowModel           euler;          // euler | navierStokes
+    fluxScheme          Kurganov;       // Kurganov | Tadmor
+    ddtScheme           Euler;
+    gradScheme          Gauss linear;
+    laplacianScheme     Gauss linear orthogonal;
+    reconstructScalar   vanAlbada;
+    reconstructVector   vanAlbadaV;
+    fluxInterpolation   linear;
+    CFL                 0.2;
+    deltaT              1e-9;
+    maxDeltaT           1e-8;
+    startTime           0;
+    startFrom           latestTime;
+    endTime             3e-6;           // resume with foamRun; blockMesh only on a new mesh
+    adjustTimeStep      yes;
+    deltaTFactor        1.2;
+    writeFormat         ascii;
+    writePrecision      8;
+    timePrecision       8;
+    runTimeModifiable   yes;
+    sourceIntegration   pointImplicit;  // pointImplicit | explicit
+    fvSolution
+    {
+        solvers
+        {
+            rho
+            {
+                solver          diagonal;
+            }
+            lambda
+            {
+                solver          diagonal;
+            }
+            U
+            {
+                solver          smoothSolver;
+                smoother        GaussSeidel;
+                nSweeps         2;
+                tolerance       1e-9;
+                relTol          0.01;
+            }
+            e
+            {
+                solver          smoothSolver;
+                smoother        GaussSeidel;
+                nSweeps         2;
+                tolerance       1e-10;
+                relTol          0;
+            }
+            // OpenFOAM 14 reads these on the final outer corrector.
+            // The same settings as the first corrector. A regex such as
+            // "e.*" is not used because this dictionary reader stops at "(".
+            rhoFinal
+            {
+                solver          diagonal;
+            }
+            lambdaFinal
+            {
+                solver          diagonal;
+            }
+            UFinal
+            {
+                solver          smoothSolver;
+                smoother        GaussSeidel;
+                nSweeps         2;
+                tolerance       1e-9;
+                relTol          0.01;
+            }
+            eFinal
+            {
+                solver          smoothSolver;
+                smoother        GaussSeidel;
+                nSweeps         2;
+                tolerance       1e-10;
+                relTol          0;
+            }
+        }
+        PIMPLE
+        {
+            nOuterCorrectors    2;
+        }
+    }
+    momentumTransport
+    {
+        simulationType  laminar;
+    }
+    thermophysicalTransport
+    {
+        laminar
+        {
+            model       Fourier;
+            Pr          0.7;
+        }
+    }
+}
+
+hyperbolicity
+{
+    requireStrictlyHyperbolic   yes;
+    gammaMin                    1.0000001;
+    rhoMin                      1e-8;
+    pMin                        1;
+    TMin                        1;
+    c2Min                       1;
+    maxCoStability              1;
+    sourceDependsOnGradients    no;
+    boundaryCoupling            local;
+    hyperbolicFluxSchemes       (Kurganov Tadmor);
+    hyperbolicEquationsOfState  (perfectGas);
+    localSourceIntegrations     (pointImplicit explicit);
+}
+
+// Scale |U| when kinetic energy would drive T below TMin. e + 1/2|U|^2
+// is kept. Energy is added only if the cell cannot reach TMin even at rest.
+// The solver prints how many cells this touches. Omit the dictionary to
+// leave the Kurganov update unchanged.
+positivity
+{
+    enabled     yes;
+    TMin        50;
+}
+
+boundaries
+{
+    inlet
+    {
+        p               zeroGradient;
+        T               fixedValue;
+        U               fixedValue;
+    }
+    outlet
+    {
+        type            waveTransmissive;   // waveTransmissive | zeroGradient | fixedValue
+        lInf            0.0056;             // axial length of this channel
+    }
+    walls
+    {
+        // No recess and no land, so the mesh has no inletWall or injectorSide.
+        velocityModel   slip;               // slip | acoustic
+    }
+    acoustics
+    {
+        targetPatches       (inletWall injectorSide);
+        mode                microstructure; // impedance | reflection | microstructure
+        timeDomainModel     helmholtz;      // slip | resistive | helmholtz
+        frequency           8000;
+        incidenceAngleDeg   0;
+        ZReal               1.0e6;
+        ZImag               0;
+        RReal               1;
+        RImag               0;
+        pRef                101325;
+        resistiveFloor      1e-3;
+        microstructure
+        {
+            type                    helmholtz;  // helmholtz | quarterWave | groove
+            neckLength              0.002;
+            neckRadius              0.0004;
+            cavityVolume            8.0e-9;
+            endCorrection           1.7;
+            cellArea                4.0e-6;
+            normalizedResistance    0.05;
+            cavityDepth             0.004;
+            grooveWidth             0.001;
+            grooveLand              0.001;
+            viscousResistance       1;
+            initialDisplacement     0;
+            initialVelocity         0;
+        }
+    }
+}
+
+ignition
+{
+    type                hotKernel;      // none | hotKernel | progressKernel | hotProgressKernel
+    boxMin              (0.0008 0.0004 -0.001);
+    boxMax              (0.0020 0.0014 0.002);
+    TKernel             2500;
+    lambdaKernel        0;
+    initialPressure     101325;
+    initialTemperature  300;
+    initialLambda       0;
+    inletLambda         0;
+    initialVelocity
+    {
+        circumferential 0;
+        axial           0;
+        radial          0;
+    }
+}
+
+optimization
+{
+    method              grid;           // grid | coordinate
+    maxEvaluations      6;
+    timeoutSeconds      3600;
+    coordinateLevels    1;
+    workDirectory       optimization;
+    solverCommand       "./Allrun";     // blockMesh then foamRun; not a shell line
+    objective
+    {
+        name            pressureGain;
+        sense           maximize;       // maximize | minimize
+        expression      "pMeanOutlet/pMeanInlet";
+    }
+    // The wall step is off, so this block does not name geometry.steps[0].
+    constraints
+    (
+        { quantity pMeanOutlet; min 0; }
+    );
+    designVariables
+    (
+        {
+            name        "numerics.CFL";
+            min         0.2;
+            max         0.2;
+            samples     1;
+        }
+    );
+}
+
+output
+{
+    fields              (p T U rho lambda);
+    writeControl        adjustableRunTime;
+    writeInterval       5e-7;
+    purgeWrite          0;
+    // Running maximum of p, and the time it occurred, for a soot-foil view.
+    // writeInterval here can differ from the flow-field interval above.
+    cellStructure
+    {
+        enabled         yes;
+        writeControl    adjustableRunTime;
+        writeInterval   5e-7;
+    }
+    writeCompression    no;
+    objectives
+    (
+        {
+            name        pMeanOutlet;
+            field       p;
+            region      patch;
+            patch       outlet;
+            operation   areaAverage;
+        }
+        {
+            name        pMeanInlet;
+            field       p;
+            region      patch;
+            patch       injector;
+            operation   areaAverage;
+        }
+        {
+            name        TMax;
+            field       T;
+            region      volume;
+            operation   max;
+        }
+        {
+            name        lambdaMax;
+            field       lambda;
+            region      volume;
+            operation   max;
+        }
+    );
+}
+
+// ************************************************************************* //

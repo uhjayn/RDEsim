@@ -146,6 +146,26 @@
         "focus": true
       },
       "problemMatcher": []
+    },
+    {
+      "label": "RDEsim: Cell structure view (fine)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/bin/rdesim-wsl",
+        "cells",
+        "--case",
+        "cases/annulus2D-cells"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true
+      },
+      "problemMatcher": []
     }
   ]
 }

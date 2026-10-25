@@ -1,0 +1,102 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  14
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+solver          rdeFluid;
+
+startFrom       latestTime;
+startTime       0;
+stopAt          endTime;
+endTime         3e-06;
+deltaT          1e-09;
+adjustTimeStep  yes;
+maxCo           0.2;
+maxDeltaT       1e-08;
+deltaTFactor    1.2;
+
+writeControl    adjustableRunTime;
+writeInterval   5e-07;
+purgeWrite      0;
+writeFormat     ascii;
+writePrecision  8;
+writeCompression off;
+timeFormat      general;
+timePrecision   8;
+runTimeModifiable yes;
+
+functions
+{
+    pMeanOutlet
+    {
+        type            surfaceFieldValue;
+        libs            ("libfieldFunctionObjects.so");
+        writeControl    adjustableRunTime;
+        writeInterval   5e-07;
+        writeFields     false;
+        log             false;
+        operation       areaAverage;
+        patch           outlet;
+        fields          (p);
+    }
+    pMeanInlet
+    {
+        type            surfaceFieldValue;
+        libs            ("libfieldFunctionObjects.so");
+        writeControl    adjustableRunTime;
+        writeInterval   5e-07;
+        writeFields     false;
+        log             false;
+        operation       areaAverage;
+        patch           injector;
+        fields          (p);
+    }
+    TMax
+    {
+        type            volFieldValue;
+        libs            ("libfieldFunctionObjects.so");
+        writeControl    adjustableRunTime;
+        writeInterval   5e-07;
+        writeFields     false;
+        log             false;
+        operation       max;
+        cellZone        all;
+        fields          (T);
+    }
+    lambdaMax
+    {
+        type            volFieldValue;
+        libs            ("libfieldFunctionObjects.so");
+        writeControl    adjustableRunTime;
+        writeInterval   5e-07;
+        writeFields     false;
+        log             false;
+        operation       max;
+        cellZone        all;
+        fields          (lambda);
+    }
+    peakPressure
+    {
+        type            peakPressure;
+        libs            ("librdeFluidSolver.so");
+        enabled         yes;
+        executeAtStart  no;
+        executeControl  timeStep;
+        executeInterval 1;
+        writeControl    adjustableRunTime;
+        writeInterval   5e-07;
+    }
+}
+
+// ************************************************************************* //

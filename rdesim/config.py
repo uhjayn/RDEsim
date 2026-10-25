@@ -413,6 +413,14 @@ def _validate_sections(raw: dict, fuel: dict, errors: list[str]) -> None:
         _need_number(numerics, key, f"numerics.{key}", errors)
     _need_bool(numerics, "adjustTimeStep", "numerics.adjustTimeStep", errors)
     _need_bool(numerics, "runTimeModifiable", "numerics.runTimeModifiable", errors)
+    if "startFrom" in numerics:
+        _need_word(
+            numerics,
+            "startFrom",
+            "numerics.startFrom",
+            errors,
+            ("startTime", "latestTime"),
+        )
     _need_word(
         numerics,
         "sourceIntegration",
