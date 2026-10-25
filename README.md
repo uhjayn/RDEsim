@@ -373,7 +373,7 @@ python3 -m rdesim.validation analytic   # theory only, a few seconds, no OpenFOA
 python3 -m rdesim.validation compare    # print the table from saved results
 ```
 
-The Cursor tasks are **RDEsim: Run validation** and **RDEsim: Run validation (full, resolution study)**. `validate` exits with status 1 when a gated row fails. Everything adjustable is in `cases/detonationTubeH2/validationConfig` (tube, kernel, numerics, runs, tolerance bands, calibration target). The run directories under `cases/detonationTubeH2/run/` are ignored by git. Runtimes are single-core on a 4-core Linux VM. `calibrated-N5`, `calibrated-N20` and `original-N10` were run at the same time as each other, so their times include some contention. A second, separate run of `validate` gave the same numbers to all printed digits in 579 s.
+The Cursor tasks are **RDEsim: Run validation** and **RDEsim: Run validation (full, resolution study)**. `validate` exits with status 1 when a gated row fails. Everything adjustable is in `cases/detonationTubeH2/validationConfig` (tube, kernel, numerics, runs, tolerance bands, calibration target). The run directories under `cases/detonationTubeH2/run/` are ignored by git. Runtimes are single-core on a 4-core Linux VM. `calibrated-N5`, `calibrated-N20` and `original-N10` were run at the same time as each other, so their times include some contention. Two more separate runs of `validate`, the second after merging the later `main` (new solver build), gave the same numbers to all printed digits in 579 s and 473 s.
 
 ### Reference data
 
