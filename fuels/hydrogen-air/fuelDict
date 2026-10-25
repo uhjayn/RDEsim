@@ -103,4 +103,31 @@ twoStep
     releaseOrder    1;
 }
 
+// Detailed multi-species chemistry, used when rdeConfig has
+//   reaction { model detailed; }
+// The mechanism is Burke et al. (2012), H2/O2, kept to the H2-air species
+// (H H2 O OH H2O O2 HO2 H2O2 N2, 23 reactions). Its thermo (NASA-7) and
+// reactions files are in the directory below, with their source and how they
+// were converted. The fuel name and the oxidizer species above must be names
+// in that mechanism. Euler only: the mechanism files carry no transport data.
+//   TMin                    cells colder than this skip the chemistry step
+//                           (cost control; ignition delays at lower T are far
+//                           longer than any run of this solver)
+//   ode                     OpenFOAM ODESolver settings (seulex, Rosenbrock34,
+//                           rodas23, ...) for the constant-volume cell problem
+//   initialChemicalTimeStep first sub-step guess, s
+
+detailed
+{
+    mechanism                   "detailed/burke2012";
+    TMin                        500;
+    initialChemicalTimeStep     1e-9;
+    ode
+    {
+        solver                  seulex;
+        absTol                  1e-10;
+        relTol                  1e-6;
+    }
+}
+
 // ************************************************************************* //

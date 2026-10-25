@@ -106,6 +106,14 @@ Foam::solvers::rdeFluid::rdeFluid(fvMesh& mesh)
             0.1
         )
     ),
+    chemistryProperties_(),
+    multicomponent_(nullptr),
+    chemistry_(),
+    chemistryDeltaT_(),
+    chemistryTMin_(0),
+    chemistryLog_(false),
+    fuelSpecie_(),
+    fuelMassFractionUnburned_(1),
     A_
     (
         "A",
@@ -233,11 +241,15 @@ Foam::solvers::rdeFluid::rdeFluid(fvMesh& mesh)
         );
         mesh.schemes().setFluxRequired(xi_().name());
     }
+    else if (reactionModel_ == "detailed")
+    {
+        initialiseDetailed();
+    }
     else if (reactionModel_ != "oneStepProgress")
     {
         FatalIOErrorInFunction(properties_)
             << "reactionModel '" << reactionModel_ << "' is not implemented. "
-            << "Implemented: oneStepProgress, twoStep."
+            << "Implemented: oneStepProgress, twoStep, detailed."
             << exit(FatalIOError);
     }
 
@@ -261,6 +273,11 @@ Foam::solvers::rdeFluid::~rdeFluid()
 void Foam::solvers::rdeFluid::prePredictor()
 {
     shockFluid::prePredictor();
+    if (multicomponent_)
+    {
+        speciesEquations();
+        return;
+    }
     if (xi_.valid())
     {
         inductionEquation();

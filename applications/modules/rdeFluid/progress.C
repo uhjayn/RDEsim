@@ -18,6 +18,18 @@ Foam::tmp<Foam::volScalarField> Foam::solvers::rdeFluid::reactionRate() const
     const volScalarField& T = thermo.T();
     const volScalarField safeT(max(T, TFloor_));
 
+    if (reactionModel_ == "detailed")
+    {
+        // Heat release comes from the species and the energy bookkeeping in
+        // chemistryStep, so the progress-variable source is zero.
+        return volScalarField::New
+        (
+            "reactionRate",
+            mesh,
+            dimensionedScalar(dimless/dimTime, 0)
+        );
+    }
+
     if (reactionModel_ == "twoStep")
     {
         // Release starts only where induction is complete (xi >= 1). The rate

@@ -2,6 +2,10 @@ EXE_INC = \
     -I$(FOAM_MODULES)/basicFluidSolver/lnInclude \
     -I$(FOAM_MODULES)/shockFluid/lnInclude \
     -I$(LIB_SRC)/physicalProperties/lnInclude \
+    -I$(LIB_SRC)/thermophysicalModels/multicomponentThermo/lnInclude \
+    -I$(LIB_SRC)/thermophysicalModels/specie/lnInclude \
+    -I$(LIB_SRC)/thermophysicalModels/functions/Polynomial \
+    -I$(LIB_SRC)/ODE/lnInclude \
     -I$(LIB_SRC)/thermophysicalModels/basic/lnInclude \
     -I$(LIB_SRC)/MomentumTransportModels/momentumTransportModels/lnInclude \
     -I$(LIB_SRC)/MomentumTransportModels/compressible/lnInclude \
@@ -16,6 +20,10 @@ LIB_LIBS = \
     -lshockFluidSolver \
     -lbasicFluidSolver \
     -lfluidThermophysicalModels \
+    -lmulticomponentThermophysicalModels \
+    -lchemistryModel \
+    -lspecie \
+    -lODE \
     -lmomentumTransportModels \
     -lcompressibleMomentumTransportModels \
     -lcoupledThermophysicalTransportModels \
