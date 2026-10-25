@@ -4,7 +4,7 @@ OpenFOAM runs in WSL. ParaView runs on Windows and opens the case through the WS
 
 RDEsim writes an OpenFOAM 14 case for a rotating-detonation-engine annulus, checks that the selected model stays a hyperbolic balance law, and can repeat the case while it changes wall steps and other geometry. The flow solver is `rdeFluid`, a small module on top of the Foundation `shockFluid` solver (Kurganov–Tadmor).
 
-This is not a production RDE code. The model is the reactive Euler equations with one perfect gas. The default reaction model has one progress variable, and a two-step model with an induction variable can be selected (see [Reaction models](#reaction-models)). The fuel numbers are illustrative. Nothing here has been validated against measured detonation data (speed, cell size, wave count, or thrust); the only wave-speed check compares the model with its own Chapman–Jouguet speed. See [What is not physically validated](#what-is-not-physically-validated).
+This is not a production RDE code. The model is the reactive Euler equations with one perfect gas. The default reaction model has one progress variable. A two-step model and a detailed nine-species H2-air model can be selected (see [Reaction models](#reaction-models)). The fuel numbers are illustrative. Nothing here has been validated against measured detonation data (speed, cell size, wave count, or thrust). The wave-speed checks compare the model with its own Chapman–Jouguet speed or, for H2-air at one condition, with a Cantera calculation (see [Validation](#validation-h2-air-detonation-tube)), and that comparison is a fit, not converged. See [What is not physically validated](#what-is-not-physically-validated).
 
 ## Quick start
 
@@ -42,14 +42,16 @@ Four separate tasks remain if you want one step only: **RDEsim: Prepare case**, 
 Further tasks, each a thin wrapper over `./bin/rdesim-wsl`:
 
 - **RDEsim: Run and visualize (run folder, resumes)** is `simulate --runs`. See [Run folders, restart, and checkpoints](#run-folders-restart-and-checkpoints).
-- **RDEsim: Run and visualize (choose reaction model)** is `simulate --runs --model NAME` and asks for `oneStepProgress` or `twoStep`. See [Reaction models](#reaction-models).
+- **RDEsim: Run and visualize (choose reaction model)** is `simulate --runs --model NAME` and asks for `oneStepProgress`, `twoStep`, or `detailed`. See [Reaction models](#reaction-models).
+- **RDEsim: Run and visualize (detailed chemistry)** is `simulate --runs --model detailed`.
 - **RDEsim: 1D CJ check (choose reaction model)** is `cjcheck --model NAME`.
+- **RDEsim: 0D chemistry check (detailed vs Cantera)** is `chemcheck` and needs `pip install cantera` for the reference.
 - **RDEsim: Cell structure view (fine)** is `cells --case cases/annulus2D-cells`. See [Cell structure and mesh resolution](#cell-structure-and-mesh-resolution).
 - **RDEsim: Optimize (resume, with budget)** is `optimize --budget N` and asks for the budget. See [Optimizer budget and resume](#optimizer-budget-and-resume).
 
 Options after the command: `--case PATH` (not with `build` or `test`), `--model NAME`, `--runs`, `--fresh`, and `--budget N` (`optimize` only). `./bin/rdesim-wsl` with no command prints the usage.
 
-**RDEsim: Run tests** runs `./bin/rdesim-wsl test`. That sources the OpenFOAM 14 bashrc, runs `Allwmake`, runs `python3 -m unittest tests.test_rdesim tests.test_runs tests.test_reaction_models`, then `blockMesh` and `foamRun` on `cases/annulus2D`. It removes an earlier result time folder first and keeps `0/`. It stops at the first failure and prints the time folder `foamRun` wrote. `sh tests/test_paraview_launch.sh` checks the ParaView launch messages with stub `powershell.exe` and `tasklist.exe`. It does not start a real ParaView.
+**RDEsim: Run tests** runs `./bin/rdesim-wsl test`. That sources the OpenFOAM 14 bashrc, runs `Allwmake`, runs `python3 -m unittest tests.test_rdesim tests.test_runs tests.test_reaction_models tests.test_detailed_chemistry`, then `blockMesh` and `foamRun` on `cases/annulus2D`. It removes an earlier result time folder first and keeps `0/`. It stops at the first failure and prints the time folder `foamRun` wrote. `sh tests/test_paraview_launch.sh` checks the ParaView launch messages with stub `powershell.exe` and `tasklist.exe`. It does not start a real ParaView.
 
 The scripts look for the OpenFOAM 14 bashrc at `/opt/openfoam14/etc/bashrc`, then `~/OpenFOAM/OpenFOAM-14/etc/bashrc`, and stop if neither file exists.
 
@@ -135,7 +137,7 @@ From the repository root, after sourcing the bashrc:
 Python is the standard library only. There is no install step.
 
 ```sh
-python3 -m unittest tests.test_rdesim tests.test_runs tests.test_reaction_models -v
+python3 -m unittest tests.test_rdesim tests.test_runs tests.test_reaction_models tests.test_detailed_chemistry tests.test_validation -v
 python3 -m rdesim check --config cases/annulus2D/rdeConfig
 ```
 
@@ -190,7 +192,7 @@ What each mesh actually cuts:
 
 ### Fuel and chemistry — `fuel`, `fuelOverrides`, and `fuels/<name>/fuelDict`
 
-`fuel.name` selects `fuels/<name>/fuelDict`. `fuel.library` is a path relative to the config file, or a directory name found by walking parents. `fuelOverrides` is merged on top of that file. The library has `hydrogen-air` and `ethylene-air`. Copy a directory, edit `fuelDict`, and set `fuel.name`.
+`fuel.name` selects `fuels/<name>/fuelDict`. `fuel.library` is a path relative to the config file, or a directory name found by walking parents. `fuelOverrides` is merged on top of that file. The library has `hydrogen-air` (which also carries the `twoStep` numbers and the `detailed/burke2012` mechanism files), `hydrogen-air-validation` (the calibrated copy, see [Validation](#validation-h2-air-detonation-tube)), and `ethylene-air` (one-step only). Copy a directory, edit `fuelDict`, and set `fuel.name`.
 
 The fuel file holds the fuel name and molar mass, the oxidizer species (mole fractions must sum to 1), `nuFuel` and `nuOxygen`, `heatRelease.LHV` in J per kg of fuel, `thermo` (`hConst`, `perfectGas`, `frozenReactants` or `frozenProducts`, gamma, hf, product molar mass and gamma), `transport.mu` and `Pr`, and `chemistry` (`A`, `beta`, `Ta`, `TRef`, `TFloor`, `ignitionTemperature`, `lambdaMin`, `lambdaMax`). Those chemistry numbers are not in the C++ or Python sources.
 
@@ -198,7 +200,7 @@ The fuel file holds the fuel name and molar mass, the oxidizer species (mole fra
 
 Fuel molar masses stay in kg/mol. OpenFOAM 14's `specie` entry is kg/kmol and `R() = 8314.462618/molWeight`. `prepare` writes that kg/kmol value so OpenFOAM's gas constant equals `RUniversal / W`. With the example `RUniversal`, that is 1000 times the SI molar mass. `Cp` stays in J/(kg·K).
 
-`Y_f,st` comes from the stoichiometry. `Y_f = phi * Y_f,st / (1 + (phi-1) Y_f,st)`. `frozenReactants` mixes fuel and oxidizer molar masses and uses `thermo.gamma`. `frozenProducts` uses `productMolWeight` and `productGamma`. The thermo model is still one gamma. A `janaf` thermo or any equation of state other than `perfectGas` is rejected.
+`Y_f,st` comes from the stoichiometry. `Y_f = phi * Y_f,st / (1 + (phi-1) Y_f,st)`. `frozenReactants` mixes fuel and oxidizer molar masses and uses `thermo.gamma`. `frozenProducts` uses `productMolWeight` and `productGamma`. The thermo model is still one gamma. For `oneStepProgress` and `twoStep`, a `janaf` thermo or any equation of state other than `perfectGas` is rejected. `detailed` takes per-species `janaf` thermo from its mechanism directory instead, with a perfect-gas equation of state.
 
 `numerics.flowModel euler` writes `mu` as 0 in `constant/physicalProperties` even though the fuel file still holds the viscosity you would use for `navierStokes`.
 
@@ -283,12 +285,12 @@ reaction
 
 `detailed` carries the nine H2-air species of the Burke et al. (2012) H2/O2 mechanism (H, H2, O, OH, H2O, O2, HO2, H2O2, N2; 23 reactions, NASA-7 thermo, all numbers copied from the published data, see `docs/reaction-models-design.md` for source and the one deliberate change to N2's lower temperature limit). The species are advected with the same shock-capturing flux and a stiff ODE solver (`seulex`) advances the chemistry of every cell at constant volume after each transport step (first-order Lie splitting). Select it with `reaction.model detailed` or `--model detailed`; the Cursor task **RDEsim: Run and visualize (detailed chemistry)** runs `simulate --runs --model detailed`. Settings are in the `detailed{}` block of the fuelDict: `mechanism` (a directory with `thermo` and `reactions`), `TMin` (cells colder than this skip chemistry, 500 K), `initialChemicalTimeStep`, `ode{solver absTol relTol}`, and `log yes` to print the largest difference between the ODE temperature and the thermo temperature each step. Fields `H`, `H2`, ... `N2` are written next to `lambda`, which stays as `1 - Y_fuel/Y_fuel,unburned` so objectives and the cell-structure view keep working. The gas is no longer one `gamma`: its equilibrium CJ speed is the real one (1975 m/s, Cantera), not the 2627 m/s of the reduced models.
 
-Cost and limits of `detailed`: Euler only (the mechanism files carry no transport data, so `navierStokes` is refused), no `progressKernel` ignition, no NOx, perfect-gas equation of state. On the fine `annulus2D-cells` channel (46800 cells) the first 3 microseconds took 174 s against 82 s for the one-step model on the same machine, one core; the cost grows with the number of hot cells because the ODE runs in every cell above `TMin`, so a long run with a large burnt region is several times more expensive than that. `foamRun` runs one core; detailed runs are the case for `--runs` (resume) and `output.checkpoint`. The mesh-resolution report of `cells` is based on the one-step rate and says so for other models. What was checked, all on OpenFOAM 14:
+Cost and limits of `detailed`: Euler only (the mechanism files carry no transport data, so `navierStokes` is refused), no `progressKernel` ignition, no NOx, perfect-gas equation of state. On the fine `annulus2D-cells` channel (46800 cells) the first 3 microseconds took 174 s against 82 s for the one-step model on the same machine, one core; the cost grows with the number of hot cells because the ODE runs in every cell above `TMin`, so a long run with a large burnt region is several times more expensive than that. `foamRun` runs one core; detailed runs are the case for `--runs` (resume) and `output.checkpoint`. The mesh-resolution report of `cells` is based on the one-step rate and says so for other models. What was checked, all on OpenFOAM 14 on a Linux VM, not on WSL or with Windows ParaView:
 - `./bin/rdesim-wsl chemcheck`: one closed cell at 1200 K, 1 atm, phi 1 against Cantera's constant-volume reactor on the same mechanism. Ignition delay 49.5 microseconds for both, final T 2896 K against 2894 K (0.08 %). At 1000 K and 2 atm the delays were 497 and 499 microseconds and at 1500 K 14.25 microseconds for both (the write interval limits the resolution to 1 to 2 microseconds).
 - `./bin/rdesim-wsl cjcheck --model detailed` needs `pip install cantera` for the reference. In a 0.12 m tube ignited by a 2500 K, 4 MPa kernel at 1 atm, 300 K, phi 1, the lead shock ran at 2005 m/s at 20 micrometre cells (6000 cells, 24.5 minutes on one core) and 2004 m/s at 60 micrometre cells (2000 cells, 3 minutes), against 1975 m/s for the equilibrium CJ speed of the same species, so 1.5 % above it. The wave is a driven one that has not necessarily relaxed to CJ, so 1.5 % above is not an error estimate. The distance from the shock to half fuel consumption was 77 micrometres (3.8 cells) at 20 micrometres and 155 micrometres at 60 micrometres, so the reaction zone is not converged at these resolutions: only the wave speed is a result, not a structure.
 - Not validated: cell size or regularity, any 2D structure, the hyperbolicity of the burnt composition (checked for the unburned gas only), and anything above 3500 K (the janaf range limit of most species).
 
-Limits that apply to `oneStepProgress` and `twoStep`: one perfect gas with one `gamma` and a constant `q`. For the example mixture the model's own Chapman-Jouguet speed is 2627 m/s; the real H2-air value is about 1975 m/s (see `docs/reaction-models-design.md`). They describe a hotter, faster wave than the real mixture.
+Limits that apply to `oneStepProgress` and `twoStep`: one perfect gas with one `gamma` and a constant `q`. For the example mixture the model's own Chapman-Jouguet speed is 2627 m/s; the real H2-air value is about 1969 to 1976 m/s, depending on the mechanism (see `docs/reaction-models-design.md`). They describe a hotter, faster wave than the real mixture.
 
 Sanity check of the heat release and flux scheme in 1D: `./bin/rdesim-wsl cjcheck --model twoStep` (or `python3 -m rdesim.cjcheck --config cases/annulus2D/rdeConfig --model twoStep --case runs/cjcheck`). It writes a straight tube, ignites one end, runs `foamRun` and compares the lead-shock speed with the perfect-gas Chapman-Jouguet speed. With the defaults (6000 cells of 20 micrometres, 0.12 m) it takes about 2.5 minutes. It is a self-consistency check at one resolution, not a validation against measurements and not a cell-size check.
 
@@ -386,7 +388,7 @@ With that switch, `annulus2D-long` was continued from the healthy `2e-5` s field
 
 ## Validation: H2-air detonation tube
 
-`cases/detonationTubeH2` checks the solver and the one-step model against numbers computed from detailed chemistry for stoichiometric H2-air at 101325 Pa and 300 K, and calibrates the one-step fuel to them. It is a 1D tube, closed at one end, with a burnt-gas kernel that starts the wave.
+`cases/detonationTubeH2` checks the solver and the one-step model against numbers computed from detailed chemistry for stoichiometric H2-air at 101325 Pa and 300 K, and calibrates the one-step fuel to them. It is a 1D tube, closed at one end, with a burnt-gas kernel that starts the wave. The reference numbers are Cantera and CEA calculations, not measurements, apart from the cell-width range. The agreement is a calibration at one condition. The result is not grid-converged, and the wave is not steady (see [What still does not match](#what-still-does-not-match)). The runs were made on a Linux VM with OpenFOAM 14. They have not been run on WSL or with Windows ParaView.
 
 ```sh
 ./bin/rdesim-wsl validate         # about 10 minutes: build if needed, run calibrated-N10, print the table
@@ -395,7 +397,7 @@ python3 -m rdesim.validation analytic   # theory only, a few seconds, no OpenFOA
 python3 -m rdesim.validation compare    # print the table from saved results
 ```
 
-The Cursor tasks are **RDEsim: Run validation** and **RDEsim: Run validation (full, resolution study)**. `validate` exits with status 1 when a gated row fails. Everything adjustable is in `cases/detonationTubeH2/validationConfig` (tube, kernel, numerics, runs, tolerance bands, calibration target). The run directories under `cases/detonationTubeH2/run/` are ignored by git. Runtimes are single-core on a 4-core Linux VM. `calibrated-N5`, `calibrated-N20` and `original-N10` were run at the same time as each other, so their times include some contention. Two more separate runs of `validate`, the second after merging the later `main` (new solver build), gave the same numbers to all printed digits in 579 s and 473 s.
+The Cursor tasks are **RDEsim: Run validation** and **RDEsim: Run validation (full, resolution study)**. `validate` exits with status 1 when a gated row fails. Everything adjustable is in `cases/detonationTubeH2/validationConfig` (tube, kernel, numerics, runs, tolerance bands, calibration target). The run directories under `cases/detonationTubeH2/run/` are ignored by git. Runtimes are single-core on a 4-core Linux VM, not on WSL. `python3 -m unittest tests.test_validation` checks the theory and the table logic without OpenFOAM. `calibrated-N5`, `calibrated-N20` and `original-N10` were run at the same time as each other, so their times include some contention. Two more separate runs of `validate`, the second after merging the later `main` (new solver build), gave the same numbers to all printed digits in 579 s and 473 s.
 
 ### Reference data
 
@@ -460,7 +462,6 @@ Resolution and fuel, `validate-full`, same tube and kernel:
 | `calibrated-N5` | 7500 | 1981.5 (+0.6%) | 14.15 (-8.6%) | 2543 (-13.7%) | 0.367 (+34%, FAIL) | 168 s |
 | `calibrated-N10` | 15000 | 1971.1 (+0.1%) | 14.05 (-9.3%) | 2560 (-13.1%) | 0.330 (+21%) | 599 s |
 | `calibrated-N20` | 30000 | 1987.1 (+0.9%) | 14.46 (-6.6%) | 2526 (-14.2%) | 0.267 (-2.4%) | 2420 s |
-
 | `original-N10`, original fuel, 9.7 um cells | 15000 | 2640.3 (+34.1%) | 24.76 (+59.9%) | 4384 (+48.9%) | 0.112 (-59%) | 650 s |
 
 The original fuel is not a failure of the solver. The same table also prints a check against the model's own CJ theory: the original-fuel CFD wave is within 0.5% in speed, 1.0% in pressure and 0.4% in temperature of that theory, and the calibrated runs are within 0.6%, 1.4% and 1.6%. The solver reproduces the CJ state of the model it is given. The original numbers are simply far from H2-air.
@@ -480,8 +481,9 @@ A match to the reference at the calibration point is a fit. It does not show tha
 ## What is not physically validated
 
 - The default and `twoStep` models are one-step-style, single-gamma, perfect-gas kinetics, not a detailed mechanism and not a variable-gamma product gas. `detailed` uses the Burke 2012 H2/O2 mechanism with a perfect-gas equation of state per species, Euler only; it has been checked against Cantera in 0D and against the equilibrium CJ speed in 1D, not against measured detonation data or cell widths.
-- Hydrogen and ethylene entries are starting numbers, not a calibrated detonation chemistry.
+- The `hydrogen-air` and `ethylene-air` entries are starting numbers, not a calibrated detonation chemistry. `hydrogen-air-validation` is calibrated at stoichiometric 1 atm, 300 K only, and the `detailed` mechanism is a published one that has not been tuned or compared with detonation experiments here.
 - `cjcheck` compares a 1D wave with the model's own Chapman–Jouguet speed only. The 1D tube in `cases/detonationTubeH2` compares a calibrated `hydrogen-air-validation` fuel with Chapman–Jouguet speed, pressure, temperature and half-release length computed with Cantera for stoichiometric H2-air at 1 atm and 300 K, see [Validation](#validation-h2-air-detonation-tube). That is a calibration at one point, not a prediction. The annulus cases, cell size, wave count, thrust, the `twoStep` model, other fuels and other conditions are not compared with measurements. The original `hydrogen-air` one-step numbers give a CJ speed 33% too high.
+- The `detailed` and validation runs were made on a Linux VM. They have not been run on WSL, and nothing about them has been opened in Windows ParaView.
 - `pMax` is a pressure history. On the example mesh it is the kernel footprint, not a measured cell size. The chemical length in `constant/meshResolution` is inlet sound speed over the one-step rate.
 - The `twoStep` constants are a fit to ignition delay and release duration, not a calibrated structure model. The one-step and two-step models share one gamma and one `q`, so both have a CJ speed (2627 m/s for the example) far above the real H2-air value.
 - The 2D unwrapped mesh does not resolve radial steps or the nozzle wall.
