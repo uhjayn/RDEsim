@@ -60,6 +60,17 @@ def load_config(path: str | Path) -> dict:
     }
 
 
+REACTION_MODELS = ("oneStepProgress",)
+
+
+def reaction_model(config: dict) -> str:
+    """Selected reaction model. Absent means the one-step default."""
+    reaction = config["raw"].get("reaction")
+    if isinstance(reaction, dict) and "model" in reaction:
+        return str(reaction["model"])
+    return "oneStepProgress"
+
+
 def set_path(root: dict, path: str, value) -> None:
     parent, last = _walk(root, path, create=False)
     parent[last] = value
@@ -459,6 +470,7 @@ def _validate_sections(raw: dict, fuel: dict, errors: list[str]) -> None:
     _need_word(hyper, "boundaryCoupling", "hyperbolicity.boundaryCoupling", errors)
     _validate_positivity(raw, errors)
 
+    _validate_reaction(raw, errors)
     _validate_boundaries(raw["boundaries"], errors)
     _validate_ignition(raw["ignition"], errors)
     _validate_output(raw["output"], errors)
@@ -477,6 +489,17 @@ def _validate_positivity(raw: dict, errors: list[str]) -> None:
         minimum = _need_number(block, "TMin", "positivity.TMin", errors)
         if minimum is not None and float(minimum) <= 0:
             errors.append("'positivity.TMin' must be positive")
+
+
+def _validate_reaction(raw: dict, errors: list[str]) -> None:
+    reaction = raw.get("reaction")
+    if reaction is None:
+        return
+    if not isinstance(reaction, dict):
+        errors.append("'reaction' must be a dictionary")
+        return
+    if "model" in reaction:
+        _need_word(reaction, "model", "reaction.model", errors, REACTION_MODELS)
 
 
 def _validate_fuel(fuel: dict, errors: list[str]) -> None:
@@ -686,6 +709,30 @@ def _validate_output(output: dict, errors: list[str]) -> None:
     _need_number(output, "writeInterval", "output.writeInterval", errors)
     _need_number(output, "purgeWrite", "output.purgeWrite", errors)
     _need_bool(output, "writeCompression", "output.writeCompression", errors)
+    if "startFrom" in output:
+        _need_word(
+            output,
+            "startFrom",
+            "output.startFrom",
+            errors,
+            ("startTime", "latestTime", "firstTime"),
+        )
+    checkpoint = output.get("checkpoint")
+    if checkpoint is not None:
+        if not isinstance(checkpoint, dict):
+            errors.append("'output.checkpoint' must be a dictionary")
+        else:
+            _need_bool(checkpoint, "enabled", "output.checkpoint.enabled", errors)
+            _need_word(
+                checkpoint,
+                "writeControl",
+                "output.checkpoint.writeControl",
+                errors,
+                ("clockTime", "cpuTime", "runTime", "adjustableRunTime", "timeStep"),
+            )
+            _need_number(
+                checkpoint, "writeInterval", "output.checkpoint.writeInterval", errors
+            )
     objectives = _need(output, "objectives", "output.objectives", errors)
     if isinstance(objectives, list):
         for index, entry in enumerate(objectives):
@@ -739,6 +786,13 @@ def _validate_optimization(opt: dict, errors: list[str]) -> None:
     _need_number(opt, "maxEvaluations", "optimization.maxEvaluations", errors)
     _need_number(opt, "timeoutSeconds", "optimization.timeoutSeconds", errors)
     _need_number(opt, "coordinateLevels", "optimization.coordinateLevels", errors)
+    for key in ("maxNewEvaluations",):
+        if key in opt:
+            value = _need_number(opt, key, f"optimization.{key}", errors)
+            if value is not None and value < 0:
+                errors.append(f"'optimization.{key}' must not be negative")
+    if "resume" in opt:
+        _need_bool(opt, "resume", "optimization.resume", errors)
     _need_word(opt, "workDirectory", "optimization.workDirectory", errors)
     _need_word(opt, "solverCommand", "optimization.solverCommand", errors)
     objective = _need(opt, "objective", "optimization.objective", errors)

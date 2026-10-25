@@ -110,7 +110,7 @@ def _control(config) -> str:
     adjust = "yes" if as_bool(numerics["adjustTimeStep"]) else "no"
     compression = "on" if as_bool(output["writeCompression"]) else "off"
     modifiable = "yes" if as_bool(numerics["runTimeModifiable"]) else "no"
-    start_from = numerics.get("startFrom", "startTime")
+    start_from = numerics.get("startFrom", output.get("startFrom", "startTime"))
     lines = [
         "solver          rdeFluid;",
         "",
@@ -142,6 +142,7 @@ def _control(config) -> str:
     peak = _peak_pressure_function(output)
     if peak:
         lines.append(peak)
+    lines.extend(_checkpoint_function(config, output))
     lines.append("}")
     return "\n".join(lines) + "\n"
 
@@ -166,6 +167,29 @@ def _peak_pressure_function(output) -> str:
         writeControl    {control};
         writeInterval   {interval};
     }}"""
+
+
+def _checkpoint_function(config, output) -> list[str]:
+    """Extra restart points on their own clock, for long runs.
+
+    OpenFOAM has one write control for the regular time folders. This function
+    object writes only the fields a restart needs, at its own interval, so a
+    run can checkpoint every few wall-clock minutes while the regular output
+    keeps the simulated-time spacing used for visualisation.
+    """
+    checkpoint = output.get("checkpoint")
+    if not isinstance(checkpoint, dict) or not as_bool(checkpoint["enabled"]):
+        return []
+    fields = " ".join(["p", "T", "U", "lambda"] + list(config.get("_restartFields", [])))
+    interval = format_number(checkpoint["writeInterval"])
+    return [f"""    checkpoint
+    {{
+        type            writeObjects;
+        libs            ("libutilityFunctionObjects.so");
+        writeControl    {checkpoint['writeControl']};
+        writeInterval   {interval};
+        objects         ({fields});
+    }}"""]
 
 
 def _function_object(objective, output) -> list[str]:
