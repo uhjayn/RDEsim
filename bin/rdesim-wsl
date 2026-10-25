@@ -1,7 +1,7 @@
 #!/bin/sh
 # Actions for the WSL Cursor tasks. Linux paths only.
 #   ./bin/rdesim-wsl simulate [--case cases/annulus2D-long]
-#   ./bin/rdesim-wsl prepare|build|run|open|test|optimize|cjcheck [--case PATH]
+#   ./bin/rdesim-wsl prepare|build|run|open|test|optimize|cjcheck|chemcheck [--case PATH]
 #   ./bin/rdesim-wsl validate|validate-full
 # Options after the command (--runs, --fresh, --budget also work with run,
 # prepare, open, and optimize as noted):
@@ -32,6 +32,7 @@ usage() {
     echo "       ./bin/rdesim-wsl optimize [--case PATH] [--model NAME] [--fresh] [--budget N]" >&2
     echo "       ./bin/rdesim-wsl build|test|validate|validate-full" >&2
     echo "       ./bin/rdesim-wsl cjcheck [--case PATH] [--model NAME]" >&2
+    echo "       ./bin/rdesim-wsl chemcheck" >&2
     echo "  simulate source OpenFOAM, prepare, build if needed, run, open ParaView" >&2
     echo "  prepare  write the case from its rdeConfig" >&2
     echo "  build    source OpenFOAM 14 and run Allwmake" >&2
@@ -41,6 +42,7 @@ usage() {
     echo "  test     Allwmake, unit tests, then blockMesh and foamRun on annulus2D" >&2
     echo "  validate      H2-air detonation tube: build if needed, run calibrated-N10, print the comparison table" >&2
     echo "  validate-full every run in cases/detonationTubeH2/validationConfig (resolution study, original fuel)" >&2
+    echo "  chemcheck 0D closed cell: detailed chemistry against a Cantera constant-volume reactor" >&2
     echo "  cjcheck  1D tube: measured detonation speed against Chapman-Jouguet for the model" >&2
     echo "  optimize run python3 -m rdesim optimize; finished evaluations are reused" >&2
     echo "  --case   case directory, default cases/annulus2D" >&2
@@ -460,7 +462,7 @@ cmd_test() {
     select_case "cases/annulus2D"
     source_openfoam
     ./Allwmake
-    python3 -m unittest tests.test_rdesim tests.test_runs tests.test_reaction_models
+    python3 -m unittest tests.test_rdesim tests.test_runs tests.test_reaction_models tests.test_detailed_chemistry
     (cd "$CASE" && ./Allclean)
     clear_result_times "$CASE"
     (cd "$CASE" && blockMesh && foamRun)
@@ -553,6 +555,15 @@ cmd_optimize() {
     python3 -m rdesim optimize "$@"
 }
 
+# Closed 4-cell tube at one temperature: the chemistry step alone, against
+# Cantera. Written to runs/chemcheck and rewritten on every call.
+cmd_chemcheck() {
+    cd "$ROOT"
+    source_openfoam
+    cmd_build_if_needed
+    python3 -m rdesim.chemcheck --config "$CONFIG" --case "$RUNS_ROOT/chemcheck"
+}
+
 # One-dimensional tube with the selected model. The case is written to
 # runs/cjcheck-<model> and rewritten on every call.
 cmd_cjcheck() {
@@ -627,7 +638,7 @@ if [ -n "$BUDGET" ] && [ "$COMMAND" != "optimize" ]; then
 fi
 
 case "$COMMAND" in
-    simulate|prepare|run|open|cells|optimize|cjcheck)
+    simulate|prepare|run|open|cells|optimize|cjcheck|chemcheck)
         select_case "${CASE_OPT:-cases/annulus2D}"
         ;;
     build|test|validate|validate-full)
@@ -653,4 +664,5 @@ case "$COMMAND" in
     validate-full) cmd_validate --all ;;
     optimize) cmd_optimize ;;
     cjcheck) cmd_cjcheck ;;
+    chemcheck) cmd_chemcheck ;;
 esac

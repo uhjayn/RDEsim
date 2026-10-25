@@ -4,7 +4,7 @@ OpenFOAM runs in WSL. ParaView runs on Windows and opens the case through the WS
 
 RDEsim writes an OpenFOAM 14 case for a rotating-detonation-engine annulus, checks that the selected model stays a hyperbolic balance law, and can repeat the case while it changes wall steps and other geometry. The flow solver is `rdeFluid`, a small module on top of the Foundation `shockFluid` solver (Kurganov–Tadmor).
 
-This is not a production RDE code. The model is the reactive Euler equations with one perfect gas and one progress variable. The fuel numbers are illustrative. Nothing here has been validated against detonation data (measured speed, cell size, wave count, or thrust). See [What is not physically validated](#what-is-not-physically-validated).
+This is not a production RDE code. The model is the reactive Euler equations with one perfect gas. The default reaction model has one progress variable, and a two-step model with an induction variable can be selected (see [Reaction models](#reaction-models)). The fuel numbers are illustrative. Nothing here has been validated against measured detonation data (speed, cell size, wave count, or thrust); the only wave-speed check compares the model with its own Chapman–Jouguet speed. See [What is not physically validated](#what-is-not-physically-validated).
 
 ## Quick start
 
@@ -39,11 +39,21 @@ The same command from a WSL terminal is `./bin/rdesim-wsl simulate`.
 
 Four separate tasks remain if you want one step only: **RDEsim: Prepare case**, **RDEsim: Build solver**, **RDEsim: Run annulus2D**, and **RDEsim: Open latest result in Windows ParaView**. From a terminal those are `./bin/rdesim-wsl prepare`, `build`, `run`, and `open`. `prepare`, `run`, and `open` take the same `--case` option. `build` and `test` do not. **RDEsim: Cell structure view** runs `./bin/rdesim-wsl cells`.
 
-**RDEsim: Run tests** runs `./bin/rdesim-wsl test`. That sources the OpenFOAM 14 bashrc, runs `Allwmake`, runs `python3 -m unittest tests.test_rdesim`, then `blockMesh` and `foamRun` on `cases/annulus2D`. It removes an earlier result time folder first and keeps `0/`. It stops at the first failure and prints the time folder `foamRun` wrote. `sh tests/test_paraview_launch.sh` checks the ParaView launch messages with stub `powershell.exe` and `tasklist.exe`. It does not start a real ParaView.
+Further tasks, each a thin wrapper over `./bin/rdesim-wsl`:
+
+- **RDEsim: Run and visualize (run folder, resumes)** is `simulate --runs`. See [Run folders, restart, and checkpoints](#run-folders-restart-and-checkpoints).
+- **RDEsim: Run and visualize (choose reaction model)** is `simulate --runs --model NAME` and asks for `oneStepProgress` or `twoStep`. See [Reaction models](#reaction-models).
+- **RDEsim: 1D CJ check (choose reaction model)** is `cjcheck --model NAME`.
+- **RDEsim: Cell structure view (fine)** is `cells --case cases/annulus2D-cells`. See [Cell structure and mesh resolution](#cell-structure-and-mesh-resolution).
+- **RDEsim: Optimize (resume, with budget)** is `optimize --budget N` and asks for the budget. See [Optimizer budget and resume](#optimizer-budget-and-resume).
+
+Options after the command: `--case PATH` (not with `build` or `test`), `--model NAME`, `--runs`, `--fresh`, and `--budget N` (`optimize` only). `./bin/rdesim-wsl` with no command prints the usage.
+
+**RDEsim: Run tests** runs `./bin/rdesim-wsl test`. That sources the OpenFOAM 14 bashrc, runs `Allwmake`, runs `python3 -m unittest tests.test_rdesim tests.test_runs tests.test_reaction_models`, then `blockMesh` and `foamRun` on `cases/annulus2D`. It removes an earlier result time folder first and keeps `0/`. It stops at the first failure and prints the time folder `foamRun` wrote. `sh tests/test_paraview_launch.sh` checks the ParaView launch messages with stub `powershell.exe` and `tasklist.exe`. It does not start a real ParaView.
 
 The scripts look for the OpenFOAM 14 bashrc at `/opt/openfoam14/etc/bashrc`, then `~/OpenFOAM/OpenFOAM-14/etc/bashrc`, and stop if neither file exists.
 
-The checkout is an ordinary git tree. Clone it on the Ubuntu distro and open that Linux path in Cursor's WSL window. `.vscode/tasks.json` holds **RDEsim: Run and visualize**, **RDEsim: Run and visualize (long)**, **RDEsim: Cell structure view**, **RDEsim: Cell structure view (fine)**, and the four single-step tasks. The machine that prepared the tree does not share your WSL files.
+The checkout is an ordinary git tree. Clone it on the Ubuntu distro and open that Linux path in Cursor's WSL window. `.vscode/tasks.json` holds all the **RDEsim:** tasks listed above. The machine that prepared the tree does not share your WSL files.
 
 ## Environment
 
@@ -108,7 +118,7 @@ From the repository root, after sourcing the bashrc:
 | `fuels/<name>/fuelDict` | Fuel, oxidizer, heat release, one-step rate |
 | `bin/rdesim-wsl` | Script behind the Cursor tasks: simulate, prepare, build, run, open, test |
 | `.vscode/tasks.json` | The **RDEsim:** Cursor tasks |
-| `rdesim/` | Config reader, mesh, checks, optimization driver |
+| `rdesim/` | Config reader, mesh, checks, run folders (`runs.py`), mesh-resolution report (`resolution.py`), 1D CJ check (`cjcheck.py`), optimization driver |
 | `applications/modules/rdeFluid/` | OpenFOAM 14 solver and acoustic wall condition |
 | `paraview/view_rde.py` | `pvbatch` script for the OpenFOAM reader |
 | `cases/detonationTubeH2/` | 1D H2-air validation: `validationConfig`, `referenceData` |
@@ -116,11 +126,16 @@ From the repository root, after sourcing the bashrc:
 | `rdesim/validation.py`, `rdesim/detonation.py` | Validation driver and steady ZND/CJ theory |
 | `tools/validation_reference.py` | Regenerates `referenceData` with Cantera and CEA |
 | `cases/annulus2D/` | Example case. `python3 -m rdesim prepare` overwrites the generated dictionaries |
+| `cases/annulus2D-long/` | Same case with a longer run window |
+| `cases/annulus2D-cells/` | Fine-mesh sector, about 10 cells across the one-step chemical length |
+| `runs/` | Run folders made by `--runs` and the 1D CJ tube. Ignored by git |
+| `docs/reaction-models-design.md` | Design note for the reaction models |
+| `tests/` | Unit tests and the stub-based ParaView launch test |
 
 Python is the standard library only. There is no install step.
 
 ```sh
-python3 -m unittest tests.test_rdesim -v
+python3 -m unittest tests.test_rdesim tests.test_runs tests.test_reaction_models -v
 python3 -m rdesim check --config cases/annulus2D/rdeConfig
 ```
 
@@ -225,11 +240,11 @@ cd cases/annulus2D
 
 The smoke-test `endTime` is `5e-6` s and `deltaT` is `1e-8` s. That is a short first window, not a burnout. On that window the disturbance stays next to the hot kernel.
 
-`cases/annulus2D-long` is the same geometry and the same model. `endTime` is `2e-5` s and `writeInterval` is `2e-6` s, so the run writes 10 time folders. The annulus is `0.12` m long and the inlet sound speed is about `409` m/s. In the smoke case, pressure above `1.1` times the inlet value only reaches about `y = 0.035` m. At `2e-5` s that front is at about `y = 0.048` m. Colour **p** and step the time slider from `2e-06` to `2e-05`. **U** moves with the same front; **p** is the field that was checked. This is as far as the case stays stable. Continuing past about `2.4e-5` s makes a cell temperature non-positive, and `shockFluid` then hits a floating-point exception in the sound-speed square root. Tightening the Courant number to `0.05` and switching the reconstruction to `vanLeer` did not move that failure, so the long case keeps the smoke-test numerics. On the authoring machine `blockMesh` and `foamRun` finished this window in 2 seconds of wall time. `foamRun` reported an execution time of 1.1 seconds. The maximum Courant number stayed at about 0.20. Temperatures and densities stayed positive, and there were no NaNs.
+`cases/annulus2D-long` is the same geometry and the same model. `endTime` is `2e-5` s and `writeInterval` is `2e-6` s, so the run writes 10 time folders. The annulus is `0.12` m long and the inlet sound speed is about `409` m/s. In the smoke case, pressure above `1.1` times the inlet value only reaches about `y = 0.035` m. At `2e-5` s that front is at about `y = 0.048` m. Colour **p** and step the time slider from `2e-06` to `2e-05`. **U** moves with the same front; **p** is the field that was checked. The shipped long case stops at `2e-5` s and has `positivity` off. Without the guard, a run past about `2.4e-5` s makes a cell temperature non-positive, and `shockFluid` then hits a floating-point exception in the sound-speed square root. Tightening the Courant number to `0.05` and switching the reconstruction to `vanLeer` did not move that failure. The `positivity` switch does; see [Temperature positivity](#temperature-positivity). On the authoring machine `blockMesh` and `foamRun` finished this window in 2 seconds of wall time. `foamRun` reported an execution time of 1.1 seconds. The maximum Courant number stayed at about 0.20. Temperatures and densities stayed positive, and there were no NaNs.
 
 `cases/annulus2D-cells` is a straight 5 degree sector, 5.6 mm long, with 180 by 260 cells (46800). The nozzle and the wall step are off, and there is no injector recess, so the spacing stays uniform. At the 2500 K kernel the one-step chemical length is the inlet sound speed divided by the rate, not a ZND induction length. That length is 0.22 mm. The edges are about 0.022 mm, so the count is about 10.4 axial cells and 10.2 circumferential cells across it. That count is not a validated cell size. `numerics.startFrom` is `latestTime`, `writeInterval` is `5e-7` s, and `endTime` is `3e-6` s. A later `foamRun` continues from the last time folder. Run `blockMesh` again only when the mesh changes. **RDEsim: Cell structure view (fine)** runs `./bin/rdesim-wsl cells --case cases/annulus2D-cells`. `positivity` is on, with `TMin` 50.
 
-On this machine `blockMesh` and `foamRun` reached `3e-6` s in 81 s of wall time. `foamRun` reported an execution time of 80 s and exited 0. The maximum Courant number was 0.202. No field went NaN, and density stayed positive. The lowest temperature was 225 K, so the positivity guard recorded 0 cell-steps. At `3e-6` s the pressure above 1.1 times the inlet value reaches about `y = 0.0029` m. `pMax` is one bright patch at the injector end, the hot kernel spread across part of the sector. Circumferential slices of that patch are one hump, not a repeated cell pattern. That picture is a pressure history. It is not a validated cell size. `prepare` writes the `peakPressure` function object from `output.cellStructure`, on the same `5e-7` s interval as the flow fields.
+On the authoring machine `blockMesh` and `foamRun` reached `3e-6` s in 81 s of wall time. `foamRun` reported an execution time of 80 s and exited 0. The maximum Courant number was 0.202. No field went NaN, and density stayed positive. The lowest temperature was 225 K, so the positivity guard recorded 0 cell-steps. At `3e-6` s the pressure above 1.1 times the inlet value reaches about `y = 0.0029` m. `pMax` is one bright patch at the injector end, the hot kernel spread across part of the sector. Circumferential slices of that patch are one hump, not a repeated cell pattern. That picture is a pressure history. It is not a validated cell size. `prepare` writes the `peakPressure` function object from `output.cellStructure`, on the same `5e-7` s interval as the flow fields.
 
 After a run, `rdeFluid` writes `postProcessing/rdeObjectives/objectives.dat` (latest) and a copy under the time name. It also writes `postProcessing/hyperbolicity/report` at start and stops if that check fails. The Python report in `constant/hyperbolicityReport` is the same kind of check before the solver starts.
 
@@ -249,7 +264,7 @@ Every evaluation lives in `workDirectory/eval-<fingerprint>` where the fingerpri
 
 ## Run folders, restart, and checkpoints
 
-`python3 -m rdesim prepare --config cases/annulus2D/rdeConfig --run-folder` (or `./bin/rdesim-wsl simulate --runs`, `prepare --runs`, `run --runs`, `open --runs`; all take `--case` too, for example `simulate --case cases/annulus2D-long --runs`; the Cursor task **RDEsim: Run and visualize (run folder, resumes)** does this for the default case; add `--fresh` to delete the earlier result times first) writes a self-contained case to `runs/<case>-<model>-<fingerprint>/`. The fingerprint hashes the physics (geometry, mesh, operating point, fuel, ignition, boundaries, numerics except `endTime`). Re-running the same config reuses the folder and sets `startFrom latestTime`, so an interrupted run or a longer `endTime` continues from the last written time. A changed physics setting makes a new folder, so earlier results are never overwritten. `python3 -m rdesim run-dir --config <rdeConfig>` prints the folder path. `runs/` is ignored by git.
+`python3 -m rdesim prepare --config cases/annulus2D/rdeConfig --run-folder` (or `./bin/rdesim-wsl simulate --runs`, `prepare --runs`, `run --runs`, `open --runs`, `cells --runs`; all take `--case` too, for example `simulate --case cases/annulus2D-long --runs`; the Cursor task **RDEsim: Run and visualize (run folder, resumes)** does this for the default case; add `--fresh` to delete the earlier result times first) writes a self-contained case to `runs/<case>-<model>-<fingerprint>/`. The fingerprint hashes the physics (geometry, mesh, operating point, fuel, ignition, boundaries, numerics except `endTime`). Re-running the same config reuses the folder and sets `startFrom latestTime`, so an interrupted run or a longer `endTime` continues from the last written time. A changed physics setting makes a new folder, so earlier results are never overwritten. `python3 -m rdesim run-dir --config <rdeConfig>` prints the folder path. `runs/` is ignored by git.
 
 `output.writeInterval` is the normal write cadence. Pick a value that divides `endTime`: OpenFOAM writes only on that cadence, so the final state is lost if `endTime` is not a multiple of it. `output.checkpoint` (`{"enabled": true, "writeControl": "clockTime", "writeInterval": 600}`; `timeStep`, `runTime`, `cpuTime` also work) adds a `writeObjects` function object that writes restart fields at that cadence in addition. A checkpoint-only time folder has the solution fields and restarts correctly; it need not have every output field. `output.startFrom` accepts `startTime` (default), `latestTime`, or `firstTime`. `numerics.startFrom` (used by the fine-channel case) takes the same values and wins when both are set. Neither changes the run folder fingerprint.
 
@@ -260,13 +275,20 @@ Every evaluation lives in `workDirectory/eval-<fingerprint>` where the fingerpri
 ```
 reaction
 {
-    model   twoStep;    // oneStepProgress | twoStep
+    model   twoStep;    // oneStepProgress | twoStep | detailed
 }
 ```
 
 `twoStep` adds an induction variable `xi` (0 to 1, no heat) followed by heat release `lambda` that starts where `xi = 1`. Its five numbers are in `fuels/<name>/fuelDict` under `twoStep` (`inductionA`, `inductionTa`, `releaseA`, `releaseTa`, `releaseOrder`); override them with `fuelOverrides`. The `hydrogen-air` values come from a fit to Burke 2012 ignition delays (20 bar, 1400 to 1900 K, within 7 %) and are not a validated detonation-structure model; the comment in that file lists exactly what was fitted. Cost: one extra transported scalar, so roughly the one-step cost per time step. It resolves a much shorter induction zone than the one-step example, so a cell size that is fine for one-step may be too coarse for it.
 
-Limits that apply to both: one perfect gas with one `gamma` and a constant `q`. For the example mixture the model's own Chapman-Jouguet speed is 2627 m/s; the real H2-air value is about 1975 m/s (see `docs/reaction-models-design.md`). They describe a hotter, faster wave than the real mixture.
+`detailed` carries the nine H2-air species of the Burke et al. (2012) H2/O2 mechanism (H, H2, O, OH, H2O, O2, HO2, H2O2, N2; 23 reactions, NASA-7 thermo, all numbers copied from the published data, see `docs/reaction-models-design.md` for source and the one deliberate change to N2's lower temperature limit). The species are advected with the same shock-capturing flux and a stiff ODE solver (`seulex`) advances the chemistry of every cell at constant volume after each transport step (first-order Lie splitting). Select it with `reaction.model detailed` or `--model detailed`; the Cursor task **RDEsim: Run and visualize (detailed chemistry)** runs `simulate --runs --model detailed`. Settings are in the `detailed{}` block of the fuelDict: `mechanism` (a directory with `thermo` and `reactions`), `TMin` (cells colder than this skip chemistry, 500 K), `initialChemicalTimeStep`, `ode{solver absTol relTol}`, and `log yes` to print the largest difference between the ODE temperature and the thermo temperature each step. Fields `H`, `H2`, ... `N2` are written next to `lambda`, which stays as `1 - Y_fuel/Y_fuel,unburned` so objectives and the cell-structure view keep working. The gas is no longer one `gamma`: its equilibrium CJ speed is the real one (1975 m/s, Cantera), not the 2627 m/s of the reduced models.
+
+Cost and limits of `detailed`: Euler only (the mechanism files carry no transport data, so `navierStokes` is refused), no `progressKernel` ignition, no NOx, perfect-gas equation of state. On the fine `annulus2D-cells` channel (46800 cells) the first 3 microseconds took 174 s against 82 s for the one-step model on the same machine, one core; the cost grows with the number of hot cells because the ODE runs in every cell above `TMin`, so a long run with a large burnt region is several times more expensive than that. `foamRun` runs one core; detailed runs are the case for `--runs` (resume) and `output.checkpoint`. The mesh-resolution report of `cells` is based on the one-step rate and says so for other models. What was checked, all on OpenFOAM 14:
+- `./bin/rdesim-wsl chemcheck`: one closed cell at 1200 K, 1 atm, phi 1 against Cantera's constant-volume reactor on the same mechanism. Ignition delay 49.5 microseconds for both, final T 2896 K against 2894 K (0.08 %). At 1000 K and 2 atm the delays were 497 and 499 microseconds and at 1500 K 14.25 microseconds for both (the write interval limits the resolution to 1 to 2 microseconds).
+- `./bin/rdesim-wsl cjcheck --model detailed` needs `pip install cantera` for the reference. In a 0.12 m tube ignited by a 2500 K, 4 MPa kernel at 1 atm, 300 K, phi 1, the lead shock ran at 2005 m/s at 20 micrometre cells (6000 cells, 24.5 minutes on one core) and 2004 m/s at 60 micrometre cells (2000 cells, 3 minutes), against 1975 m/s for the equilibrium CJ speed of the same species, so 1.5 % above it. The wave is a driven one that has not necessarily relaxed to CJ, so 1.5 % above is not an error estimate. The distance from the shock to half fuel consumption was 77 micrometres (3.8 cells) at 20 micrometres and 155 micrometres at 60 micrometres, so the reaction zone is not converged at these resolutions: only the wave speed is a result, not a structure.
+- Not validated: cell size or regularity, any 2D structure, the hyperbolicity of the burnt composition (checked for the unburned gas only), and anything above 3500 K (the janaf range limit of most species).
+
+Limits that apply to `oneStepProgress` and `twoStep`: one perfect gas with one `gamma` and a constant `q`. For the example mixture the model's own Chapman-Jouguet speed is 2627 m/s; the real H2-air value is about 1975 m/s (see `docs/reaction-models-design.md`). They describe a hotter, faster wave than the real mixture.
 
 Sanity check of the heat release and flux scheme in 1D: `./bin/rdesim-wsl cjcheck --model twoStep` (or `python3 -m rdesim.cjcheck --config cases/annulus2D/rdeConfig --model twoStep --case runs/cjcheck`). It writes a straight tube, ignites one end, runs `foamRun` and compares the lead-shock speed with the perfect-gas Chapman-Jouguet speed. With the defaults (6000 cells of 20 micrometres, 0.12 m) it takes about 2.5 minutes. It is a self-consistency check at one resolution, not a validation against measurements and not a cell-size check.
 
@@ -305,9 +327,9 @@ paraFoam
 
 ## Cell structure and mesh resolution
 
-`output.cellStructure` in `rdeConfig` sets the write control for a `peakPressure` function object. Each cell stores `pMax`, the running maximum of pressure, and `tAtPMax`, the time that maximum occurred. Change `writeControl` and `writeInterval` there if you want those fields on a different schedule from the flow fields.
+`output.cellStructure` in `rdeConfig` sets the write control for a `peakPressure` function object. `cases/annulus2D` and `cases/annulus2D-cells` enable it; `cases/annulus2D-long` does not. Each cell stores `pMax`, the running maximum of pressure, and `tAtPMax`, the time that maximum occurred. Change `writeControl` and `writeInterval` there if you want those fields on a different schedule from the flow fields.
 
-**RDEsim: Cell structure view** prints the mesh-resolution report and runs `pvbatch` on `paraview/cell_structure.py`. The script writes a grey image of `pMax` and a wireframe of the mesh to `postProcessing/cellStructure/`. If Windows `paraview.exe` is installed, the task uses `pvbatch.exe` beside it. Otherwise it uses `pvbatch` on `PATH`.
+**RDEsim: Cell structure view** prints the mesh-resolution report and runs `pvbatch` on `paraview/cell_structure.py`. The script writes a grey image of `pMax` and a wireframe of the mesh to `postProcessing/cellStructure/`. If Windows `paraview.exe` is installed, the task uses `pvbatch.exe` beside it. Otherwise it uses `pvbatch` on `PATH`. `./bin/rdesim-wsl cells --case PATH` does the same for another case, for example `cases/annulus2D-cells` (the **fine** task), and takes `--model` and `--runs`. The mesh-resolution report alone is `python3 -m rdesim resolution --config PATH/rdeConfig`.
 
 The length in `constant/meshResolution` is the inlet sound speed divided by the one-step rate. It is not a ZND induction length and not a cell width from a detonation database. At the 2500 K kernel that length is 0.22 mm. The median axial edge on the example mesh is 2.6 mm, which is 0.086 cells across that length. The report warns that the grid is too coarse for detonation cells. A reactive Euler model with one progress variable tends to make weak or irregular cells even when the mesh is fine.
 
@@ -356,7 +378,7 @@ A hard wall is `|R| → 1` for a large real `Z`. A soft wall is `R = -1` at `Z =
 
 `shockFluid::fluxPredictor` evaluates `sqrt(gamma R T)`. A non-positive cell temperature is a floating-point exception, not a failed convergence message. On `annulus2D-long` that happened just after `2.4e-5` s. The failing cell sat on the injector face: pressure had fallen to about 1 kPa, speed was about 1100 m/s, and the one-step source in that cell was zero. The momentum update had put more kinetic energy in the cell than `e + 1/2|U|^2` could support at positive temperature. Tightening the Courant number or switching the limiter from vanAlbada to vanLeer did not move that time.
 
-`positivity` in `rdeConfig` is the switch. With `enabled yes`, a cell that would fall below `TMin` has `|U|` reduced and sensible energy raised by the same amount, so `e + 1/2|U|^2` is unchanged. Energy is added only when the cell cannot reach `TMin` even at rest. The log line `Positivity guard` and `postProcessing/positivity/activations.dat` count those cell-steps. Omit the dictionary and the Kurganov update is unchanged. `chemistry.TFloor` is only the argument of the Arrhenius exponential. It is not this floor.
+`positivity` in `rdeConfig` is the switch. With `enabled yes`, a cell that would fall below `TMin` has `|U|` reduced and sensible energy raised by the same amount, so `e + 1/2|U|^2` is unchanged. Energy is added only when the cell cannot reach `TMin` even at rest. The log line `Positivity guard` and `postProcessing/positivity/activations.dat` count those cell-steps. Omit the dictionary and the Kurganov update is unchanged. `cases/annulus2D` and `cases/annulus2D-cells` turn it on. `cases/annulus2D-long` does not, so it still ends at `2e-5` s. `chemistry.TFloor` is only the argument of the Arrhenius exponential. It is not this floor.
 
 The example uses `TMin 50`. That is below the inlet temperature and below the 244 K dip seen on the coarse mesh before the crash. It is a numerical floor, not a measured gas temperature.
 
@@ -457,7 +479,7 @@ A match to the reference at the calibration point is a fit. It does not show tha
 
 ## What is not physically validated
 
-- One-step, single-gamma, perfect-gas kinetics. Not a detailed mechanism, and not a variable-gamma product gas.
+- The default and `twoStep` models are one-step-style, single-gamma, perfect-gas kinetics, not a detailed mechanism and not a variable-gamma product gas. `detailed` uses the Burke 2012 H2/O2 mechanism with a perfect-gas equation of state per species, Euler only; it has been checked against Cantera in 0D and against the equilibrium CJ speed in 1D, not against measured detonation data or cell widths.
 - Hydrogen and ethylene entries are starting numbers, not a calibrated detonation chemistry.
 - `cjcheck` compares a 1D wave with the model's own Chapman–Jouguet speed only. The 1D tube in `cases/detonationTubeH2` compares a calibrated `hydrogen-air-validation` fuel with Chapman–Jouguet speed, pressure, temperature and half-release length computed with Cantera for stoichiometric H2-air at 1 atm and 300 K, see [Validation](#validation-h2-air-detonation-tube). That is a calibration at one point, not a prediction. The annulus cases, cell size, wave count, thrust, the `twoStep` model, other fuels and other conditions are not compared with measurements. The original `hydrogen-air` one-step numbers give a CJ speed 33% too high.
 - `pMax` is a pressure history. On the example mesh it is the kernel footprint, not a measured cell size. The chemical length in `constant/meshResolution` is inlet sound speed over the one-step rate.

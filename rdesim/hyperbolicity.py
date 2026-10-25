@@ -189,7 +189,41 @@ def check_hyperbolicity(config: dict, state: Mixture) -> HyperbolicityReport:
         model = boundaries["acoustics"]["timeDomainModel"]
         if model not in ("slip", "resistive", "helmholtz"):
             fail(f"Acoustic time-domain model '{model}' is not local")
+
+    if reaction_model(config) == "detailed":
+        _check_species(config, state, report, fail)
     return report
+
+
+# Temperatures at which the frozen mixture is checked: the inlet, the hot
+# kernel, and a hot burnt-gas value. The burnt composition itself is not
+# known before the run, so the check uses the unburned composition.
+def _check_species(config: dict, state: Mixture, report: HyperbolicityReport, fail) -> None:
+    mechanism = state.mechanism
+    fractions = state.species
+    if min(fractions.values()) < 0 or abs(sum(fractions.values()) - 1.0) > 1e-9:
+        fail("Unburned species mass fractions are not non-negative and summing to 1")
+    ignition = config["raw"]["ignition"]
+    temperatures = {"inlet": state.temperature}
+    if ignition["type"] == "hotKernel":
+        temperatures["hot kernel"] = float(ignition["TKernel"])
+    for label, temperature in temperatures.items():
+        for specie in mechanism.species:
+            if fractions[specie.name] > 0 and not specie.in_range(temperature):
+                fail(
+                    f"{label} temperature {temperature:g} K is outside the janaf range "
+                    f"{specie.t_low:g} to {specie.t_high:g} K of {specie.name}"
+                )
+        properties = mechanism.mixture(fractions, temperature)
+        if properties["gamma"] <= float(config["raw"]["hyperbolicity"]["gammaMin"]):
+            fail(f"Frozen gamma {properties['gamma']:.6g} at the {label} temperature is not above gammaMin")
+        if properties["soundSpeed"] ** 2 <= float(config["raw"]["hyperbolicity"]["c2Min"]):
+            fail(f"Frozen c^2 at the {label} temperature is not above c2Min")
+    report.warnings.append(
+        "detailed: gamma and c^2 were checked for the unburned composition at the inlet "
+        "and kernel temperatures. Burnt-gas composition is not known before the run; "
+        "the solver checks the initial fields only and does not monitor gamma or c^2 afterwards."
+    )
 
 
 def _yes(value) -> bool:

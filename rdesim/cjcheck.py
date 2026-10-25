@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 
 from .casewriter import prepare_case
-from .config import ConfigError, load_config
+from .config import ConfigError, load_config, reaction_model
 from .foamdict import FoamDict, write_file
 from .mixture import mixture_from_config
 
@@ -50,6 +50,92 @@ def cj_perfect_gas(gamma: float, q: float, c0: float, p0: float) -> dict:
         "pressureRatio": (1.0 + gamma * mach * mach) / (gamma + 1.0),
         "pressure": p0 * (1.0 + gamma * mach * mach) / (gamma + 1.0),
     }
+
+
+def cj_equilibrium(config: dict) -> dict:
+    """CJ state of the detailed mechanism's species at chemical equilibrium (Cantera).
+
+    Cantera reads the Burke 2012 YAML that the OpenFOAM mechanism files were
+    built from, so both sides have the same species and the same NASA-7 data.
+    The wave speed is the one at which the equilibrium flow behind it is sonic
+    (equilibrium sound speed by a small isentropic pressure step). Cantera is
+    needed only for this reference value.
+    """
+    import cantera as ct
+
+    from .mixture import mixture_from_config
+    from .species import load_mechanism, mechanism_directory, unburned_mass_fractions
+
+    directory = mechanism_directory(config)
+    mechanism = load_mechanism(directory)
+    fractions = unburned_mass_fractions(config, mechanism)
+    state = mixture_from_config(config)
+    gas = ct.Solution(str(directory / "source" / "Burke2012.yaml"))
+    speed, temperature, pressure = _equilibrium_cj(
+        gas, {name: value for name, value in fractions.items() if value > 0}, state.temperature, state.pressure
+    )
+    return {
+        "mach": speed / state.sound_speed,
+        "speed": speed,
+        "pressure": pressure,
+        "pressureRatio": pressure / state.pressure,
+        "temperature": temperature,
+    }
+
+
+def _equilibrium_cj(gas, fractions, temperature, pressure) -> tuple[float, float, float]:
+    """Speed, temperature and pressure of the equilibrium CJ state.
+
+    For a trial wave speed D the post-wave state follows from the Rayleigh line
+    and the energy equation, with the specific volume found by fixed-point
+    iteration around a chemical-equilibrium (enthalpy, pressure) solve. Below
+    the CJ speed there is no solution (Cantera raises, treated as "too slow");
+    above it the strong branch is subsonic. Bisection on the sonic condition
+    u2 = c2 gives D.
+    """
+    gas.TPY = temperature, pressure, fractions
+    rho1 = gas.density
+    v1 = 1.0 / rho1
+    h1 = gas.enthalpy_mass
+
+    def behind(speed: float) -> None:
+        v2 = 0.55 * v1
+        for _ in range(500):
+            p2 = pressure + rho1 * speed**2 * (1.0 - v2 / v1)
+            h2 = h1 + 0.5 * speed**2 * (1.0 - (v2 / v1) ** 2)
+            gas.HP = h2, p2
+            gas.equilibrate("HP")
+            v_new = 1.0 / gas.density
+            if abs(v_new - v2) < 1e-11 * v2:
+                return
+            v2 = 0.5 * (v2 + v_new)
+
+    def equilibrium_sound_speed() -> float:
+        s, p, rho = gas.entropy_mass, gas.P, gas.density
+        step = 1e-4 * p
+        gas.SP = s, p + step
+        gas.equilibrate("SP")
+        rho_up = gas.density
+        gas.SP = s, p
+        gas.equilibrate("SP")
+        return math.sqrt(step / (rho_up - rho))
+
+    low, high = 1000.0, 4000.0
+    for _ in range(50):
+        mid = 0.5 * (low + high)
+        try:
+            behind(mid)
+            margin = mid * rho1 / gas.density - equilibrium_sound_speed()
+        except Exception:
+            low = mid
+            continue
+        if margin < 0:
+            high = mid
+        else:
+            low = mid
+    speed = 0.5 * (low + high)
+    behind(speed)
+    return speed, gas.T, gas.P
 
 
 def tube_block_mesh(length: float, cells: int, width: float = 1.0e-3) -> str:
@@ -236,10 +322,19 @@ def _zone_text(result: dict) -> str:
     return f"{zone * 1e6:.1f} micrometres = {zone / result['dx']:.1f} cells (later-half mean)"
 
 
+def _state_line(expected: dict, gamma: float, q: float, c0: float) -> str:
+    if "temperature" in expected:
+        return (
+            f"  c0 {c0:.6g} m/s (frozen mixture); reference is the equilibrium CJ state of the "
+            f"mechanism's species (Cantera), T {expected['temperature']:.0f} K"
+        )
+    return f"  gamma {gamma:.6g}  q {q:.6g} J/kg  c0 {c0:.6g} m/s"
+
+
 def report(model: str, expected: dict, result: dict, gamma: float, q: float, c0: float) -> str:
     lines = [
         f"1D Chapman-Jouguet sanity check, reaction model {model}",
-        f"  gamma {gamma:.6g}  q {q:.6g} J/kg  c0 {c0:.6g} m/s",
+        _state_line(expected, gamma, q, c0),
         f"  CJ Mach number        {expected['mach']:.5f}",
         f"  CJ speed              {expected['speed']:.2f} m/s",
         f"  CJ pressure           {expected['pressure']:.4g} Pa",
@@ -250,6 +345,11 @@ def report(model: str, expected: dict, result: dict, gamma: float, q: float, c0:
         f"  shock to lambda=0.5   {_zone_text(result)}",
         f"  largest cell pressure {result['peakPressure']:.4g} Pa (includes the von Neumann spike and any numerical overshoot)",
         "This checks the heat release and the flux scheme at one resolution. It is not a cell-size or data validation.",
+        *(
+            ["For a reaction model with a mechanism the reference is the equilibrium CJ speed, so a few percent of difference (the measured value is the lead shock in a driven, still-developing wave) is expected."]
+            if "temperature" in expected
+            else []
+        ),
     ]
     return "\n".join(lines)
 
@@ -271,7 +371,18 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = load_config(args.config, args.model)
         state = mixture_from_config(config)
-        expected = cj_perfect_gas(state.gamma, state.heat_release, state.sound_speed, state.pressure)
+        if reaction_model(config) == "detailed":
+            try:
+                expected = cj_equilibrium(config)
+            except ImportError:
+                print(
+                    "The detailed model's CJ reference needs cantera (pip install cantera); "
+                    "it reads the same Burke 2012 mechanism. Nothing was written.",
+                    file=sys.stderr,
+                )
+                return 2
+        else:
+            expected = cj_perfect_gas(state.gamma, state.heat_release, state.sound_speed, state.pressure)
         travel = args.run_fraction * args.length
         end_time = (args.kernel_length + travel) / expected["speed"]
         case_dir = Path(args.case)
@@ -299,8 +410,6 @@ def main(argv: list[str] | None = None) -> int:
     except (ConfigError, RuntimeError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1
-    from .config import reaction_model
-
     print(report(reaction_model(config), expected, result, state.gamma, state.heat_release, state.sound_speed))
     ok = abs(result["ratio"] - 1.0) <= args.tolerance
     print(f"Within {args.tolerance:.0%} of CJ: {'yes' if ok else 'NO'}")
