@@ -59,6 +59,47 @@
       "problemMatcher": []
     },
     {
+      "label": "RDEsim: Run and visualize (choose reaction model)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/bin/rdesim-wsl",
+        "simulate",
+        "--runs",
+        "--model",
+        "${input:reactionModel}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "RDEsim: 1D CJ check (choose reaction model)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/bin/rdesim-wsl",
+        "cjcheck",
+        "--model",
+        "${input:reactionModel}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "RDEsim: Prepare case",
       "type": "shell",
       "command": "bash",
@@ -213,6 +254,16 @@
       "type": "promptString",
       "description": "Most new solver evaluations to start in this call. Finished evaluations are reused and cost nothing.",
       "default": "3"
+    },
+    {
+      "id": "reactionModel",
+      "type": "pickString",
+      "description": "Reaction model",
+      "options": [
+        "oneStepProgress",
+        "twoStep"
+      ],
+      "default": "oneStepProgress"
     }
   ]
 }
