@@ -17,15 +17,20 @@ from .resolution import resolution_report
 from .runs import latest_time, run_directory, write_run_record
 
 
+MODEL_HELP = "Reaction model, overriding reaction.model in rdeConfig"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="rdesim")
     sub = parser.add_subparsers(dest="command", required=True)
 
     check = sub.add_parser("check", help="Parse a case and report hyperbolicity")
     check.add_argument("--config", required=True)
+    check.add_argument("--model", help=MODEL_HELP)
 
     prepare = sub.add_parser("prepare", help="Write an OpenFOAM case from rdeConfig")
     prepare.add_argument("--config", required=True)
+    prepare.add_argument("--model", help=MODEL_HELP)
     prepare.add_argument("--case")
     prepare.add_argument(
         "--run-folder",
@@ -36,10 +41,12 @@ def main(argv: list[str] | None = None) -> int:
 
     run_dir = sub.add_parser("run-dir", help="Print the run folder for a configuration")
     run_dir.add_argument("--config", required=True)
+    run_dir.add_argument("--model", help=MODEL_HELP)
     run_dir.add_argument("--runs-root")
 
     opt = sub.add_parser("optimize", help="Vary design variables and run the solver")
     opt.add_argument("--config", required=True)
+    opt.add_argument("--model", help=MODEL_HELP)
     opt.add_argument(
         "--budget",
         type=int,
@@ -53,28 +60,29 @@ def main(argv: list[str] | None = None) -> int:
 
     resolution = sub.add_parser("resolution", help="Compare cell size with the one-step chemical length")
     resolution.add_argument("--config", required=True)
+    resolution.add_argument("--model", help=MODEL_HELP)
 
     args = parser.parse_args(argv)
     try:
         if args.command == "check":
-            return _check(Path(args.config))
+            return _check(Path(args.config), args.model)
         if args.command == "prepare":
             if bool(args.case) == bool(args.run_folder):
                 parser.error("prepare needs exactly one of --case and --run-folder")
-            return _prepare(Path(args.config), args.case, args.run_folder, args.runs_root)
+            return _prepare(Path(args.config), args.case, args.run_folder, args.runs_root, args.model)
         if args.command == "resolution":
-            print(resolution_report(load_config(Path(args.config))).text)
+            print(resolution_report(load_config(Path(args.config), args.model)).text)
             return 0
         if args.command == "run-dir":
-            return _run_dir(Path(args.config), args.runs_root)
-        return _optimize(Path(args.config), args.budget, args.fresh)
+            return _run_dir(Path(args.config), args.runs_root, args.model)
+        return _optimize(Path(args.config), args.budget, args.fresh, args.model)
     except ConfigError as exc:
         print(exc, file=sys.stderr)
         return 1
 
 
-def _check(path: Path) -> int:
-    config = load_config(path)
+def _check(path: Path, model=None) -> int:
+    config = load_config(path, model)
     state = mixture_from_config(config)
     profile = build_profile(config)
     acoustics = evaluate_acoustics(config, state.density, state.sound_speed)
@@ -103,8 +111,8 @@ def _check(path: Path) -> int:
     return 0 if report.hyperbolic else 1
 
 
-def _prepare(config_path: Path, case, run_folder: bool, runs_root) -> int:
-    config = load_config(config_path)
+def _prepare(config_path: Path, case, run_folder: bool, runs_root, model=None) -> int:
+    config = load_config(config_path, model)
     if run_folder:
         case_dir = run_directory(config, runs_root)
         known = latest_time(case_dir)
@@ -123,13 +131,13 @@ def _prepare(config_path: Path, case, run_folder: bool, runs_root) -> int:
     return 0 if prepared["hyperbolicity"].hyperbolic else 1
 
 
-def _run_dir(config_path: Path, runs_root) -> int:
-    print(run_directory(load_config(config_path), runs_root))
+def _run_dir(config_path: Path, runs_root, model=None) -> int:
+    print(run_directory(load_config(config_path, model), runs_root))
     return 0
 
 
-def _optimize(config_path: Path, budget, fresh: bool) -> int:
-    summary = optimize(config_path, budget=budget, fresh=fresh)
+def _optimize(config_path: Path, budget, fresh: bool, model=None) -> int:
+    summary = optimize(config_path, budget=budget, fresh=fresh, model=model)
     print(summary["text"])
     if summary["best"] is None:
         print("No feasible evaluation.", file=sys.stderr)

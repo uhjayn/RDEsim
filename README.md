@@ -247,6 +247,23 @@ Every evaluation lives in `workDirectory/eval-<fingerprint>` where the fingerpri
 
 `output.writeInterval` is the normal write cadence. Pick a value that divides `endTime`: OpenFOAM writes only on that cadence, so the final state is lost if `endTime` is not a multiple of it. `output.checkpoint` (`{"enabled": true, "writeControl": "clockTime", "writeInterval": 600}`; `timeStep`, `runTime`, `cpuTime` also work) adds a `writeObjects` function object that writes restart fields at that cadence in addition. A checkpoint-only time folder has the solution fields and restarts correctly; it need not have every output field. `output.startFrom` accepts `startTime` (default), `latestTime`, or `firstTime`. `numerics.startFrom` (used by the fine-channel case) takes the same values and wins when both are set. Neither changes the run folder fingerprint.
 
+## Reaction models
+
+`reaction.model` in `rdeConfig` (or `--model NAME` on `prepare`, `check`, `optimize`, `./bin/rdesim-wsl`, or the Cursor task **RDEsim: Run and visualize (choose reaction model)**) selects the source terms. Without a `reaction` dictionary the model is `oneStepProgress`, the original single progress variable, and the case files and results are unchanged.
+
+```
+reaction
+{
+    model   twoStep;    // oneStepProgress | twoStep
+}
+```
+
+`twoStep` adds an induction variable `xi` (0 to 1, no heat) followed by heat release `lambda` that starts where `xi = 1`. Its five numbers are in `fuels/<name>/fuelDict` under `twoStep` (`inductionA`, `inductionTa`, `releaseA`, `releaseTa`, `releaseOrder`); override them with `fuelOverrides`. The `hydrogen-air` values come from a fit to Burke 2012 ignition delays (20 bar, 1400 to 1900 K, within 7 %) and are not a validated detonation-structure model; the comment in that file lists exactly what was fitted. Cost: one extra transported scalar, so roughly the one-step cost per time step. It resolves a much shorter induction zone than the one-step example, so a cell size that is fine for one-step may be too coarse for it.
+
+Limits that apply to both: one perfect gas with one `gamma` and a constant `q`. For the example mixture the model's own Chapman-Jouguet speed is 2627 m/s; the real H2-air value is about 1975 m/s (see `docs/reaction-models-design.md`). They describe a hotter, faster wave than the real mixture.
+
+Sanity check of the heat release and flux scheme in 1D: `./bin/rdesim-wsl cjcheck --model twoStep` (or `python3 -m rdesim.cjcheck --config cases/annulus2D/rdeConfig --model twoStep --case runs/cjcheck`). It writes a straight tube, ignites one end, runs `foamRun` and compares the lead-shock speed with the perfect-gas Chapman-Jouguet speed. With the defaults (6000 cells of 20 micrometres, 0.12 m) it takes about 2.5 minutes. It is a self-consistency check at one resolution, not a validation against measurements and not a cell-size check.
+
 ## ParaView on Windows
 
 **RDEsim: Run and visualize** asks Windows to start ParaView after the run. The separate task **RDEsim: Open latest result in Windows ParaView** does only that launch. Both print the `paraview.exe` path, the exact `Start-Process` or `cmd.exe /c start` command, and its exit code. After a short wait they run `tasklist.exe /FI "IMAGENAME eq paraview.exe"`. The line `Windows reports paraview.exe is running.` is printed only when that list contains `paraview.exe`. A WSL pid is not a running ParaView.
@@ -343,8 +360,9 @@ With that switch, `annulus2D-long` was continued from the healthy `2e-5` s field
 
 - One-step, single-gamma, perfect-gas kinetics. Not a detailed mechanism, and not a variable-gamma product gas.
 - Hydrogen and ethylene entries are starting numbers, not a calibrated detonation chemistry.
-- No comparison with Chapman–Jouguet speed, cell size, wave count, or thrust.
+- Only a 1D wave-speed check against the model's own Chapman–Jouguet speed (`cjcheck`). No comparison with measured detonation data, cell size, wave count, or thrust.
 - `pMax` is a pressure history. On the example mesh it is the kernel footprint, not a measured cell size. The chemical length in `constant/meshResolution` is inlet sound speed over the one-step rate.
+- The `twoStep` constants are a fit to ignition delay and release duration, not a calibrated structure model. The one-step and two-step models share one gamma and one `q`, so both have a CJ speed (2627 m/s for the example) far above the real H2-air value.
 - The 2D unwrapped mesh does not resolve radial steps or the nozzle wall.
 - The 3D mesh does not resolve discrete injector slots.
 - Acoustics are lumped. Cavities are not meshed. The Helmholtz ODE is explicit Euler and is not a proven stable integrator for every `deltaT`.

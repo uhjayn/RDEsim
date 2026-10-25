@@ -15,11 +15,16 @@ class ConfigError(Exception):
         super().__init__("\n".join(messages))
 
 
-def load_config(path: str | Path) -> dict:
+def load_config(path: str | Path, model: str | None = None) -> dict:
+    """``model`` overrides ``reaction.model`` from the file (CLI ``--model``)."""
     path = Path(path).resolve()
     raw = parse_file(path)
     if "FoamFile" in raw:
         raw = FoamDict((key, value) for key, value in raw.items() if key != "FoamFile")
+    if model is not None:
+        if not isinstance(raw.get("reaction"), dict):
+            raw["reaction"] = FoamDict()
+        raw["reaction"]["model"] = model
     errors: list[str] = []
     _require_mapping(raw, "rdeConfig", errors)
     for section in (
@@ -60,7 +65,7 @@ def load_config(path: str | Path) -> dict:
     }
 
 
-REACTION_MODELS = ("oneStepProgress",)
+REACTION_MODELS = ("oneStepProgress", "twoStep")
 
 
 def reaction_model(config: dict) -> str:
@@ -470,7 +475,7 @@ def _validate_sections(raw: dict, fuel: dict, errors: list[str]) -> None:
     _need_word(hyper, "boundaryCoupling", "hyperbolicity.boundaryCoupling", errors)
     _validate_positivity(raw, errors)
 
-    _validate_reaction(raw, errors)
+    _validate_reaction(raw, fuel, errors)
     _validate_boundaries(raw["boundaries"], errors)
     _validate_ignition(raw["ignition"], errors)
     _validate_output(raw["output"], errors)
@@ -491,15 +496,32 @@ def _validate_positivity(raw: dict, errors: list[str]) -> None:
             errors.append("'positivity.TMin' must be positive")
 
 
-def _validate_reaction(raw: dict, errors: list[str]) -> None:
+def _validate_reaction(raw: dict, fuel: dict, errors: list[str]) -> None:
     reaction = raw.get("reaction")
-    if reaction is None:
-        return
-    if not isinstance(reaction, dict):
+    if reaction is not None and not isinstance(reaction, dict):
         errors.append("'reaction' must be a dictionary")
         return
-    if "model" in reaction:
+    if isinstance(reaction, dict) and "model" in reaction:
         _need_word(reaction, "model", "reaction.model", errors, REACTION_MODELS)
+    model = reaction.get("model", "oneStepProgress") if isinstance(reaction, dict) else "oneStepProgress"
+    if model == "twoStep":
+        two = fuel.get("twoStep")
+        if not isinstance(two, dict):
+            errors.append("reaction.model is twoStep but the fuel has no 'twoStep' dictionary")
+            return
+        for key in (
+            "inductionA",
+            "inductionTa",
+            "releaseA",
+            "releaseTa",
+            "releaseOrder",
+        ):
+            _need_number(two, key, f"fuel.twoStep.{key}", errors)
+        for key in ("inductionA", "releaseA"):
+            if isinstance(two.get(key), (int, float)) and float(two[key]) <= 0:
+                errors.append(f"fuel.twoStep.{key} must be positive")
+        if isinstance(two.get("releaseOrder"), (int, float)) and float(two["releaseOrder"]) <= 0:
+            errors.append("fuel.twoStep.releaseOrder must be positive")
 
 
 def _validate_fuel(fuel: dict, errors: list[str]) -> None:
