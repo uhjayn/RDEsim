@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from .config import reaction_model
 from .geometry import build_profile
 from .mesh import Mesh, build_mesh
 from .mixture import mixture_from_config
@@ -63,6 +64,12 @@ def resolution_report(config: dict) -> ResolutionReport:
         ),
         "  This is not a ZND induction length and not a measured cell width.",
     ]
+    if reaction_model(config) != "oneStepProgress":
+        lines.append(
+            f"  Reaction model is {reaction_model(config)}. The chemical length below "
+            "still comes from the one-step chemistry block, not from that model's "
+            "induction and release rates, so read it as a mesh-scale reference only."
+        )
 
     kernel_length = _chemical_length(chemistry, state.sound_speed, kernel_temperature)
     ignition_length = _chemical_length(

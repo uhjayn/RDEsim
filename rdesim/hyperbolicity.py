@@ -10,12 +10,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .config import reaction_model
 from .mixture import Mixture
 
 
 IMPLEMENTED_FLUX = ("Kurganov", "Tadmor")
 IMPLEMENTED_SOURCE = ("pointImplicit", "explicit")
 IMPLEMENTED_EOS = ("perfectGas",)
+
+# The reaction models only add transported scalars with local sources. They
+# leave the Euler flux Jacobian, and so the frozen sound speed, unchanged.
+REACTION_NOTES = {
+    "oneStepProgress": "",
+    "twoStep": (
+        "twoStep adds xi and lambda as passive scalars with local sources; "
+        "the Euler flux Jacobian and frozen c^2 are those of the single perfect gas."
+    ),
+}
 
 
 @dataclass
@@ -30,6 +41,8 @@ class HyperbolicityReport:
     sound_speed_squared: float = 0.0
     flux_scheme: str = ""
     flow_model: str = ""
+    reaction_model: str = "oneStepProgress"
+    reaction_note: str = ""
 
     def text(self) -> str:
         state = "hyperbolic" if self.hyperbolic else "NOT hyperbolic"
@@ -42,7 +55,10 @@ class HyperbolicityReport:
             f"  c^2                   {self.sound_speed_squared:.8g} m^2/s^2",
             f"  flux scheme           {self.flux_scheme}",
             f"  flow model            {self.flow_model}",
+            f"  reaction model        {self.reaction_model}",
         ]
+        if self.reaction_note:
+            lines.append(f"  {self.reaction_note}")
         if self.failures:
             lines.append("Failures:")
             lines.extend(f"  - {item}" for item in self.failures)
@@ -68,6 +84,8 @@ def check_hyperbolicity(config: dict, state: Mixture) -> HyperbolicityReport:
         sound_speed_squared=state.sound_speed_squared,
         flux_scheme=str(numerics["fluxScheme"]),
         flow_model=str(numerics["flowModel"]),
+        reaction_model=reaction_model(config),
+        reaction_note=REACTION_NOTES.get(reaction_model(config), ""),
     )
 
     def fail(message: str) -> None:

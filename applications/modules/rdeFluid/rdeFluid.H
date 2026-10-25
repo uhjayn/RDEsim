@@ -24,7 +24,19 @@ class rdeFluid
     // constant/rdeProperties. Every chemistry coefficient is read from there.
     IOdictionary properties_;
 
+    // oneStepProgress or twoStep. oneStepProgress is the default.
+    word reactionModel_;
+
     volScalarField lambda_;
+
+    // twoStep: induction progress xi (0 to 1) and its Arrhenius-type constants.
+    autoPtr<volScalarField> xi_;
+    scalar inductionA_;
+    scalar inductionTa_;
+    scalar releaseA_;
+    scalar releaseTa_;
+    scalar releaseOrder_;
+    scalar inductionMargin_;
 
     dimensionedScalar A_;
     scalar beta_;
@@ -50,6 +62,8 @@ class rdeFluid
 
 
     tmp<volScalarField> reactionRate() const;
+
+    void inductionEquation();
 
     void progressEquation();
 
