@@ -13,6 +13,7 @@ from .geometry import build_profile
 from .hyperbolicity import check_hyperbolicity
 from .mixture import mixture_from_config
 from .optimize import optimize
+from .resolution import resolution_report
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -29,12 +30,18 @@ def main(argv: list[str] | None = None) -> int:
     opt = sub.add_parser("optimize", help="Vary design variables and run the solver")
     opt.add_argument("--config", required=True)
 
+    resolution = sub.add_parser("resolution", help="Compare cell size with the one-step chemical length")
+    resolution.add_argument("--config", required=True)
+
     args = parser.parse_args(argv)
     try:
         if args.command == "check":
             return _check(Path(args.config))
         if args.command == "prepare":
             return _prepare(Path(args.config), Path(args.case))
+        if args.command == "resolution":
+            print(resolution_report(load_config(Path(args.config))).text)
+            return 0
         return _optimize(Path(args.config))
     except ConfigError as exc:
         print(exc, file=sys.stderr)
@@ -67,6 +74,7 @@ def _check(path: Path) -> int:
     if acoustics.warning:
         print(f"  {acoustics.warning}")
     print(report.text())
+    print(resolution_report(config).text)
     return 0 if report.hyperbolic else 1
 
 

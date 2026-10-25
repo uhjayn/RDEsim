@@ -389,6 +389,31 @@ class ParaViewLaunchTests(unittest.TestCase):
             self.fail(result.stdout + result.stderr)
 
 
+class ResolutionTests(unittest.TestCase):
+    def test_example_mesh_is_too_coarse_for_cells(self):
+        from rdesim.resolution import CELLS_ACROSS_CHEMICAL_LENGTH, resolution_report
+
+        report = resolution_report(load_config(EXAMPLE))
+        self.assertTrue(report.coarse)
+        self.assertLess(report.cells_axial, CELLS_ACROSS_CHEMICAL_LENGTH)
+        self.assertLess(report.cells_circumferential, CELLS_ACROSS_CHEMICAL_LENGTH)
+        self.assertIn("not a ZND induction length", report.text)
+        self.assertIn("not a measured cell width", report.text)
+        self.assertIn("too coarse to resolve detonation cells", report.text)
+        self.assertGreater(report.n_cells, 0)
+        self.assertGreater(report.axial_m, 0.0)
+
+    def test_prepare_writes_peak_pressure_controls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case = Path(tmp) / "annulus"
+            prepare_case(load_config(EXAMPLE), case)
+            control = (case / "system" / "controlDict").read_text(encoding="utf-8")
+            self.assertIn("type            peakPressure;", control)
+            self.assertIn("writeInterval   1e-06;", control)
+            resolution = (case / "constant" / "meshResolution").read_text(encoding="utf-8")
+            self.assertIn("WARNING: the grid is too coarse", resolution)
+
+
 def tearDownModule():
     for name in (".tmp-rdeConfig", ".tmp-broken"):
         path = ROOT / "cases" / "annulus2D" / name

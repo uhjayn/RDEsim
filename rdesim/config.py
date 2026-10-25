@@ -696,6 +696,28 @@ def _validate_output(output: dict, errors: list[str]) -> None:
             _need_word(entry, "operation", f"output.objectives[{index}].operation", errors)
             if region == "patch":
                 _need_word(entry, "patch", f"output.objectives[{index}].patch", errors)
+    _validate_cell_structure(output, errors)
+
+
+def _validate_cell_structure(output: dict, errors: list[str]) -> None:
+    block = output.get("cellStructure")
+    if block is None:
+        return
+    if not isinstance(block, dict):
+        errors.append("'output.cellStructure' must be a dictionary")
+        return
+    if "enabled" in block:
+        _need_bool(block, "enabled", "output.cellStructure.enabled", errors)
+    if "writeControl" in block:
+        _need_word(
+            block,
+            "writeControl",
+            "output.cellStructure.writeControl",
+            errors,
+            ("timeStep", "writeTime", "adjustableRunTime", "runTime"),
+        )
+    if "writeInterval" in block:
+        _need_number(block, "writeInterval", "output.cellStructure.writeInterval", errors)
 
 
 def _validate_optimization(opt: dict, errors: list[str]) -> None:

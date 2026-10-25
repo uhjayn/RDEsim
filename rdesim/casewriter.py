@@ -11,6 +11,7 @@ from .geometry import build_profile
 from .hyperbolicity import check_hyperbolicity
 from .mesh import build_mesh
 from .mixture import inlet_speed, mesh_velocity, mixture_from_config, velocity_components
+from .resolution import resolution_report
 from .vtkwrite import write_blocks
 
 
@@ -99,6 +100,8 @@ def _write_tree(case_dir, config, state, profile, mesh, acoustics, report) -> No
     write_blocks(case_dir / "VTK" / "geometryBlocks.vtk", mesh.hexes)
     _scripts(case_dir)
     (case_dir / "constant" / "hyperbolicityReport").write_text(report.text() + "\n", encoding="utf-8")
+    resolution = resolution_report(config)
+    (case_dir / "constant" / "meshResolution").write_text(resolution.text + "\n", encoding="utf-8")
 
 
 def _control(config) -> str:
@@ -135,8 +138,33 @@ def _control(config) -> str:
     ]
     for objective in config["raw"]["output"]["objectives"]:
         lines.extend(_function_object(objective, output))
+    peak = _peak_pressure_function(output)
+    if peak:
+        lines.append(peak)
     lines.append("}")
     return "\n".join(lines) + "\n"
+
+
+def _peak_pressure_function(output) -> str:
+    block = output.get("cellStructure")
+    if not isinstance(block, dict):
+        block = {}
+    enabled = as_bool(block["enabled"]) if "enabled" in block else True
+    if not enabled:
+        return ""
+    control = block.get("writeControl", output["writeControl"])
+    interval = format_number(block.get("writeInterval", output["writeInterval"]))
+    return f"""    peakPressure
+    {{
+        type            peakPressure;
+        libs            ("librdeFluidSolver.so");
+        enabled         yes;
+        executeAtStart  no;
+        executeControl  timeStep;
+        executeInterval 1;
+        writeControl    {control};
+        writeInterval   {interval};
+    }}"""
 
 
 def _function_object(objective, output) -> list[str]:

@@ -1,0 +1,10 @@
+Mesh resolution
+  cells                 1872
+  circumferential edge  min 0.0005 m  median 0.000648414 m  max 0.000648414 m
+  axial edge            min 0.001 m  median 0.0026087 m  max 0.0026087 m
+  One-step chemical length uses the inlet sound speed 408.627 m/s times 1/rate.
+  This is not a ZND induction length and not a measured cell width.
+  kernel temperature 2500 K: chemical length 0.000223103 m, 0.0855 axial cells, 0.344 circumferential cells.
+  ignition temperature 1200 K: chemical length 0.017 m, 6.52 axial cells, 26.2 circumferential cells.
+  WARNING: the grid is too coarse to resolve detonation cells. At the kernel temperature the estimate is 0.0855 axial cells and 0.344 circumferential cells across the chemical length. A cellular structure wants at least 10 in both directions, and a one-step reactive Euler model still tends to make weak or irregular cells on a fine mesh.
+  A reactive Euler model with one progress variable does not produce a validated soot foil. Read pMax as a pressure history, not as a cell width.
