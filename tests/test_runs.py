@@ -96,6 +96,17 @@ class RunFolderTests(unittest.TestCase):
         self.assertIn("writeControl    clockTime;", control)
         self.assertIn("writeInterval   600;", control)
 
+    def test_numerics_start_from_wins_and_does_not_change_the_folder(self):
+        first = load_config(EXAMPLE)
+        second = load_config(EXAMPLE)
+        second["raw"]["numerics"]["startFrom"] = "latestTime"
+        second["raw"]["output"]["startFrom"] = "firstTime"
+        self.assertEqual(fingerprint(first), fingerprint(second))
+        with tempfile.TemporaryDirectory() as tmp:
+            prepare_case(second, Path(tmp) / "case")
+            control = (Path(tmp) / "case" / "system" / "controlDict").read_text(encoding="utf-8")
+        self.assertIn("startFrom       latestTime;", control)
+
     def test_default_start_is_unchanged(self):
         config = load_config(EXAMPLE)
         with tempfile.TemporaryDirectory() as tmp:

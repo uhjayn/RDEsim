@@ -4,7 +4,8 @@ A run folder is named ``<case>-<model>-<fingerprint>`` under the runs root. The
 fingerprint covers everything that changes the physics or the mesh: the whole
 ``rdeConfig`` and the merged fuel dictionary. It leaves out the entries that
 only say how long to run or what to write: ``output``, ``optimization``,
-``numerics.endTime`` and ``numerics.runTimeModifiable``. The same physics
+``numerics.endTime``, ``numerics.runTimeModifiable`` and
+``numerics.startFrom``. The same physics
 therefore always lands in the same folder, so a second run resumes from the
 latest time written there, and a run with a longer ``endTime`` continues it.
 Changing the geometry, the fuel, the reaction model or any numerics entry opens
