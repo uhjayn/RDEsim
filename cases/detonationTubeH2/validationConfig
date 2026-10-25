@@ -1,0 +1,171 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  14
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      validationConfig;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Everything the H2-air validation uses is set here, in SI units. Lengths of
+// the tube, the kernel and the output spacing are multiples of the half-release
+// length of the model being run (the distance to lambda = 0.5 in its own steady
+// ZND profile, see rdesim/detonation.py), so a model whose reaction zone is 8
+// times shorter automatically gets an 8 times finer mesh. Nothing below is read from the C++.
+//
+//   python3 -m rdesim.validation analytic     theory only, no OpenFOAM
+//   python3 -m rdesim.validation calibrate    show the calibration (add --write to save)
+//   python3 -m rdesim.validation run          mesh, foamRun, measure, table
+//   ./bin/rdesim-wsl validate                 the same, with OpenFOAM sourced
+
+reference       referenceData;      // path relative to this file
+referenceMechanism  gri30;          // which block of referenceData.computed is the target
+
+fuelLibrary     fuels;              // directory name found by walking up from here
+
+constants
+{
+    RUniversal          8.314462618;
+}
+
+// Unburnt mixture at the head of the tube. Must match referenceData.computed.
+operating
+{
+    equivalenceRatio    1;
+    p0                  101325;
+    T0                  300;
+}
+
+// Fuel entries. "original" is never edited. "calibrated" is written by
+// `calibrate --write`, from "original" and referenceData.
+fuels
+{
+    original            hydrogen-air;
+    calibrated          hydrogen-air-validation;
+}
+
+calibration
+{
+    // Shock speeds (1 -/+ delta) D_CJ are used for the effective activation energy.
+    thetaShockSpeedDelta    0.02;
+    // Reduced activation energy Ea/(R T_vN) the calibration aims for. The word
+    // "reference" would use the Cantera value (about 9). A one-step first-order
+    // model with a value above about 5.5 pulsates or quenches in 1D (README,
+    // stability scan), so 5 is a stability choice, not a match to the mixture.
+    reducedActivationEnergy 5;
+    // Integration points of the model ZND quadrature.
+    zndPoints               20001;
+}
+
+// 1D tube along x, closed at x = 0, one cell in y and z (both empty).
+tube
+{
+    lengthInHalfLengths   1500;        // tube length in model half-release lengths
+    crossSection        1e-3;       // y and z extent in m; the solver is 1D
+}
+
+// Burnt-gas kernel at the closed end that starts the wave. It is the model's
+// own CJ state scaled by the two ratios below, with lambda = 1, so it cannot
+// burn further.
+initiation
+{
+    lengthInHalfLengths   10;
+    pressureOverCJ      6;
+    temperatureOverCJ   2;
+}
+
+numerics
+{
+    flowModel           euler;
+    fluxScheme          Kurganov;
+    ddtScheme           Euler;
+    gradScheme          Gauss linear;
+    laplacianScheme     Gauss linear orthogonal;
+    reconstructScalar   vanAlbada;
+    reconstructVector   vanAlbadaV;
+    fluxInterpolation   linear;
+    CFL                 0.2;
+    deltaTFraction      0.05;       // first step as a fraction of CFL dx / D_CJ
+    deltaTFactor        1.2;
+    sourceIntegration   pointImplicit;
+    writePrecision      8;
+    timePrecision       8;
+    writeEveryHalfLength 5;         // wave travel between written times
+    endSpeedOverCJ      1.3;        // assumed upper bound of the wave speed while it relaxes to CJ
+    endFraction         0.97;       // stop at this fraction of the time that wave needs to cross the tube
+    fvSolution
+    {
+        solvers
+        {
+            rho         { solver diagonal; }
+            lambda      { solver diagonal; }
+            U           { solver smoothSolver; smoother GaussSeidel; nSweeps 2; tolerance 1e-9;  relTol 0.01; }
+            e           { solver smoothSolver; smoother GaussSeidel; nSweeps 2; tolerance 1e-10; relTol 0; }
+            rhoFinal    { solver diagonal; }
+            lambdaFinal { solver diagonal; }
+            UFinal      { solver smoothSolver; smoother GaussSeidel; nSweeps 2; tolerance 1e-9;  relTol 0.01; }
+            eFinal      { solver smoothSolver; smoother GaussSeidel; nSweeps 2; tolerance 1e-10; relTol 0; }
+        }
+        PIMPLE
+        {
+            nOuterCorrectors    2;
+        }
+    }
+}
+
+hyperbolicity
+{
+    requireStrictlyHyperbolic   yes;
+    gammaMin                    1.0000001;
+    rhoMin                      1e-8;
+    pMin                        1;
+    TMin                        1;
+    c2Min                       1;
+    maxCoStability              1;
+    sourceDependsOnGradients    no;
+    boundaryCoupling            local;
+    hyperbolicFluxSchemes       (Kurganov Tadmor);
+    hyperbolicEquationsOfState  (perfectGas);
+    localSourceIntegrations     (pointImplicit explicit);
+}
+
+// How the wave is measured from the written fields.
+measurement
+{
+    shockPressureRatio      3;      // shock = rightmost cell with p above this times p0
+    fitFromFraction         0.6;    // speed fit uses shock positions in this part of the tube
+    fitToFraction           0.95;
+    excludeShockCells       4;      // cells behind the shock skipped before looking for the sonic plane
+    searchHalfLengths       6;      // look for the lambda = 0.5 crossing within this many half-lengths behind the shock
+}
+
+// Runs. Each makes a case under run/<name>. cellsPerHalfLength counts cells in
+// one half-release length of the model being run. gate yes means a FAIL in the
+// table makes the command exit with status 1; gate no runs are only reported.
+runs
+(
+    { name calibrated-N10;  fuel calibrated; cellsPerHalfLength 10; gate yes; }
+    { name original-N10;    fuel original;   cellsPerHalfLength 10; gate no;  }
+    { name calibrated-N5;   fuel calibrated; cellsPerHalfLength 5;  gate no;  }
+    { name calibrated-N20;  fuel calibrated; cellsPerHalfLength 20; gate no;  }
+);
+
+// Runs done by the default `validate` command. The rest only with `validate-full`.
+defaultRuns     (calibrated-N10);
+
+// Acceptance bands, set before looking at any result. They are not physics.
+// A row passes when |model - reference| / reference is inside the band.
+tolerances
+{
+    waveSpeedPercent        2;
+    pressurePercent         15;     // one gamma cannot match both D and p_CJ; ~10 percent is expected
+    temperaturePercent      20;     // same reason
+    halfReleaseLengthPercent 25;    // mesh-limited at 10 cells per half-release length
+}
+
+// ************************************************************************* //
