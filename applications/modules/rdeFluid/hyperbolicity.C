@@ -9,8 +9,10 @@
 \*---------------------------------------------------------------------------*/
 
 #include "rdeFluid.H"
+#include "IOdictionary.H"
 #include "IOstreams.H"
 #include "OFstream.H"
+#include "OSspecific.H"
 #include "Pstream.H"
 
 namespace
@@ -262,7 +264,7 @@ void Foam::solvers::rdeFluid::checkHyperbolicity() const
         );
     }
 
-    IOobject acousticHeader
+    typeIOobject<IOdictionary> acousticHeader
     (
         "acousticReflection",
         runTime.constant(),
@@ -270,7 +272,7 @@ void Foam::solvers::rdeFluid::checkHyperbolicity() const
         IOobject::READ_IF_PRESENT,
         IOobject::NO_WRITE
     );
-    if (acousticHeader.typeHeaderOk<IOdictionary>(false))
+    if (acousticHeader.headerOk())
     {
         IOdictionary acoustic(acousticHeader);
         if (acoustic.found("timeDomainModel"))

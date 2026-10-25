@@ -10,6 +10,7 @@
 #include "rdeFluid.H"
 #include "IOstreams.H"
 #include "OFstream.H"
+#include "OSspecific.H"
 #include "Pstream.H"
 #include "Tuple2.H"
 
