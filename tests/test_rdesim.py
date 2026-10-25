@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import shutil
 import subprocess
 import tempfile
@@ -276,6 +277,47 @@ class CaseTests(unittest.TestCase):
         rejected["raw"]["positivity"]["TMin"] = 0
         with self.assertRaises(ConfigError):
             load_config(_materialise(rejected["raw"]))
+
+    def test_fine_channel_meets_ten_cells_across_the_chemical_length(self):
+        path = ROOT / "cases" / "annulus2D-cells" / "rdeConfig"
+        config = load_config(path)
+        raw = config["raw"]
+        self.assertEqual(int(raw["mesh"]["nCircumferential"]), 180)
+        self.assertEqual(int(raw["mesh"]["nAxial"]), 260)
+        self.assertEqual(raw["numerics"]["startFrom"], "latestTime")
+        chemistry = mixture_from_config(config).chemistry
+        temperature = float(raw["ignition"]["TKernel"])
+        rate = (
+            float(chemistry["A"])
+            * (temperature / float(chemistry["TRef"])) ** float(chemistry["beta"])
+            * math.exp(-float(chemistry["Ta"]) / temperature)
+        )
+        length = mixture_from_config(config).sound_speed / rate
+        built = build_mesh(config, build_profile(config))
+        axial = []
+        circumferential = []
+        n_cells = 0
+        for block in built.hexes:
+            nx, ny, nz = (max(int(count), 1) for count in block.cells)
+            count = nx * ny * nz
+            n_cells += count
+            circumferential.extend(
+                [math.dist(tuple(block.corners[0]), tuple(block.corners[1])) / nx] * count
+            )
+            axial.extend(
+                [math.dist(tuple(block.corners[0]), tuple(block.corners[3])) / ny] * count
+            )
+        axial_m = sorted(axial)[len(axial) // 2]
+        circumferential_m = sorted(circumferential)[len(circumferential) // 2]
+        self.assertEqual(n_cells, 180 * 260)
+        self.assertGreaterEqual(length / axial_m, 10)
+        self.assertGreaterEqual(length / circumferential_m, 10)
+        with tempfile.TemporaryDirectory() as tmp:
+            case = Path(tmp) / "annulus2D-cells"
+            prepare_case(config, case)
+            control = (case / "system" / "controlDict").read_text(encoding="utf-8")
+            self.assertIn("startFrom       latestTime;", control)
+            self.assertIn("endTime         3e-06;", control)
 
 
 class OptimizerTests(unittest.TestCase):

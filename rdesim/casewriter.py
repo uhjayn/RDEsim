@@ -110,10 +110,11 @@ def _control(config) -> str:
     adjust = "yes" if as_bool(numerics["adjustTimeStep"]) else "no"
     compression = "on" if as_bool(output["writeCompression"]) else "off"
     modifiable = "yes" if as_bool(numerics["runTimeModifiable"]) else "no"
+    start_from = numerics.get("startFrom", "startTime")
     lines = [
         "solver          rdeFluid;",
         "",
-        "startFrom       startTime;",
+        f"startFrom       {start_from};",
         f"startTime       {format_number(numerics['startTime'])};",
         "stopAt          endTime;",
         f"endTime         {format_number(numerics['endTime'])};",
