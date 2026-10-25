@@ -15,6 +15,38 @@ namespace solvers
 }
 }
 
+namespace
+{
+
+// The one-step constants must be in rdeProperties for oneStepProgress and have
+// no default. Other models do not use them.
+Foam::scalar oneStepEntry
+(
+    const Foam::dictionary& chemistry,
+    const Foam::word& model,
+    const Foam::word& key
+)
+{
+    return model == "oneStepProgress"
+      ? chemistry.lookup<Foam::scalar>(key)
+      : chemistry.lookupOrDefault<Foam::scalar>(key, 1);
+}
+
+Foam::scalar twoStepEntry
+(
+    const Foam::dictionary& chemistry,
+    const Foam::word& model,
+    const Foam::word& key
+)
+{
+    return model == "twoStep"
+      ? chemistry.lookup<Foam::scalar>(key)
+      : chemistry.lookupOrDefault<Foam::scalar>(key, 0);
+}
+
+}
+
+
 Foam::solvers::rdeFluid::rdeFluid(fvMesh& mesh)
 :
     shockFluid(mesh),
@@ -29,6 +61,10 @@ Foam::solvers::rdeFluid::rdeFluid(fvMesh& mesh)
             IOobject::NO_WRITE
         )
     ),
+    reactionModel_
+    (
+        properties_.lookupOrDefault<word>("reactionModel", "oneStepProgress")
+    ),
     lambda_
     (
         IOobject
@@ -41,24 +77,53 @@ Foam::solvers::rdeFluid::rdeFluid(fvMesh& mesh)
         ),
         mesh
     ),
+    xi_(),
+    inductionA_
+    (
+        twoStepEntry(properties_.subDict("chemistry"), reactionModel_, "inductionA")
+    ),
+    inductionTa_
+    (
+        twoStepEntry(properties_.subDict("chemistry"), reactionModel_, "inductionTa")
+    ),
+    releaseA_
+    (
+        twoStepEntry(properties_.subDict("chemistry"), reactionModel_, "releaseA")
+    ),
+    releaseTa_
+    (
+        twoStepEntry(properties_.subDict("chemistry"), reactionModel_, "releaseTa")
+    ),
+    releaseOrder_
+    (
+        twoStepEntry(properties_.subDict("chemistry"), reactionModel_, "releaseOrder")
+    ),
+    inductionMargin_
+    (
+        properties_.subDict("chemistry").lookupOrDefault<scalar>
+        (
+            "inductionMargin",
+            0.1
+        )
+    ),
     A_
     (
         "A",
         dimless/dimTime,
-        properties_.subDict("chemistry").lookup<scalar>("A")
+        oneStepEntry(properties_.subDict("chemistry"), reactionModel_, "A")
     ),
-    beta_(properties_.subDict("chemistry").lookup<scalar>("beta")),
+    beta_(oneStepEntry(properties_.subDict("chemistry"), reactionModel_, "beta")),
     Ta_
     (
         "Ta",
         dimTemperature,
-        properties_.subDict("chemistry").lookup<scalar>("Ta")
+        oneStepEntry(properties_.subDict("chemistry"), reactionModel_, "Ta")
     ),
     TRef_
     (
         "TRef",
         dimTemperature,
-        properties_.subDict("chemistry").lookup<scalar>("TRef")
+        oneStepEntry(properties_.subDict("chemistry"), reactionModel_, "TRef")
     ),
     TFloor_
     (
@@ -70,7 +135,12 @@ Foam::solvers::rdeFluid::rdeFluid(fvMesh& mesh)
     (
         "ignitionTemperature",
         dimTemperature,
-        properties_.subDict("chemistry").lookup<scalar>("ignitionTemperature")
+        oneStepEntry
+        (
+            properties_.subDict("chemistry"),
+            reactionModel_,
+            "ignitionTemperature"
+        )
     ),
     lambdaMin_
     (
@@ -131,6 +201,48 @@ Foam::solvers::rdeFluid::rdeFluid(fvMesh& mesh)
         }
     }
 
+    if (reactionModel_ == "twoStep")
+    {
+        if
+        (
+            inductionA_ <= 0 || releaseA_ <= 0
+         || releaseOrder_ <= 0 || inductionTa_ < 0 || releaseTa_ < 0
+         || inductionMargin_ < 0
+        )
+        {
+            FatalIOErrorInFunction(properties_)
+                << "twoStep needs inductionA, releaseA, releaseOrder > 0 and "
+                << "inductionTa, releaseTa >= 0."
+                << exit(FatalIOError);
+        }
+
+        xi_.set
+        (
+            new volScalarField
+            (
+                IOobject
+                (
+                    "xi",
+                    runTime.name(),
+                    mesh,
+                    IOobject::MUST_READ,
+                    IOobject::AUTO_WRITE
+                ),
+                mesh
+            )
+        );
+        mesh.schemes().setFluxRequired(xi_().name());
+    }
+    else if (reactionModel_ != "oneStepProgress")
+    {
+        FatalIOErrorInFunction(properties_)
+            << "reactionModel '" << reactionModel_ << "' is not implemented. "
+            << "Implemented: oneStepProgress, twoStep."
+            << exit(FatalIOError);
+    }
+
+    Info<< "rdeFluid reaction model: " << reactionModel_ << endl;
+
     mesh.schemes().setFluxRequired(lambda_.name());
     checkHyperbolicity();
 }
@@ -149,6 +261,10 @@ Foam::solvers::rdeFluid::~rdeFluid()
 void Foam::solvers::rdeFluid::prePredictor()
 {
     shockFluid::prePredictor();
+    if (xi_.valid())
+    {
+        inductionEquation();
+    }
     progressEquation();
 }
 

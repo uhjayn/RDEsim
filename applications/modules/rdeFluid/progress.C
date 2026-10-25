@@ -17,6 +17,27 @@ Foam::tmp<Foam::volScalarField> Foam::solvers::rdeFluid::reactionRate() const
 {
     const volScalarField& T = thermo.T();
     const volScalarField safeT(max(T, TFloor_));
+
+    if (reactionModel_ == "twoStep")
+    {
+        // Release starts only where induction is complete (xi >= 1). The rate
+        // is the linearised coefficient k in omega = k*(lambdaMax - lambda), so
+        // the pointImplicit and explicit integrators below apply unchanged.
+        // releaseOrder = 1 gives k = releaseA exp(-releaseTa/T).
+        const dimensionedScalar tiny("tiny", dimless, 1e-6);
+        const dimensionedScalar one("one", dimless, 1);
+        const dimensionedScalar releaseA("releaseA", dimless/dimTime, releaseA_);
+        const dimensionedScalar releaseTa("releaseTa", dimTemperature, releaseTa_);
+        return volScalarField::New
+        (
+            "reactionRate",
+            releaseA
+           *exp(-releaseTa/safeT)
+           *pow(max(lambdaMax_ - lambda_, tiny), releaseOrder_ - 1)
+           *pos0(xi_() - (one - tiny))
+        );
+    }
+
     const volScalarField theta(safeT/TRef_);
 
     // pos0 zeros the rate below ignitionTemperature. TFloor only keeps the
@@ -26,6 +47,56 @@ Foam::tmp<Foam::volScalarField> Foam::solvers::rdeFluid::reactionRate() const
         "reactionRate",
         A_*pow(theta, beta_)*exp(-Ta_/safeT)*pos0(T - Tignition_)
     );
+}
+
+
+void Foam::solvers::rdeFluid::inductionEquation()
+{
+    if (!pos.valid() || !aphiv_pos.valid() || !rho_pos.valid())
+    {
+        FatalErrorInFunction
+            << "shockFluid has not cached the Kurganov-Tadmor face states."
+            << exit(FatalError);
+    }
+
+    volScalarField& xi = xi_();
+    const volScalarField safeT(max(thermo.T(), TFloor_));
+    const dimensionedScalar inductionA("inductionA", dimless/dimTime, inductionA_);
+    const dimensionedScalar inductionTa("inductionTa", dimTemperature, inductionTa_);
+    const volScalarField rate(inductionA*exp(-inductionTa/safeT));
+
+    const surfaceScalarField xiPos(fvc::interpolate(xi, pos(), "reconstruct(xi)"));
+    const surfaceScalarField xiNeg(fvc::interpolate(xi, neg(), "reconstruct(xi)"));
+    const surfaceScalarField phiXi
+    (
+        "phiXi",
+        aphiv_pos()*rho_pos()*xiPos + aphiv_neg()*rho_neg()*xiNeg
+    );
+
+    // xi grows at the induction rate and the release gate opens at xi = 1.
+    // xi keeps growing up to 1 + inductionMargin and is clipped there. The
+    // margin keeps numerical diffusion at the shock and noise in the limited
+    // reconstruction from pushing fully induced fluid back below the gate.
+    // The gate crossing time, and so the induction time, is unchanged.
+    const dimensionedScalar xiTop("xiTop", dimless, 1 + inductionMargin_);
+    fvScalarMatrix xiEqn
+    (
+        fvm::ddt(rho_, xi) + fvc::div(phiXi)
+     ==
+        rho_*rate*Foam::pos(xiTop - xi)
+    );
+
+    xiEqn.relax();
+    fvConstraints().constrain(xiEqn);
+    xiEqn.solve();
+    fvConstraints().constrain(xi);
+
+    xi.primitiveFieldRef() = max
+    (
+        min(xi.primitiveField(), xiTop.value()),
+        scalar(0)
+    );
+    xi.correctBoundaryConditions();
 }
 
 

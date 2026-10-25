@@ -1,13 +1,16 @@
 #!/bin/sh
 # Actions for the WSL Cursor tasks. Linux paths only.
 #   ./bin/rdesim-wsl simulate [--case cases/annulus2D-long]
-#   ./bin/rdesim-wsl prepare|build|run|open|test|optimize [--case PATH]
+#   ./bin/rdesim-wsl prepare|build|run|open|test|optimize|cjcheck [--case PATH]
 # Options after the command (--runs, --fresh, --budget also work with run,
 # prepare, open, and optimize as noted):
 #   --runs          keep this run in runs/<case>-<model>-<fingerprint>. The
 #                   same physics resumes from its latest time; a changed case
 #                   gets its own folder. Without --runs the case folder is
 #                   used in place, as before.
+#   --model NAME    reaction model: oneStepProgress (default), twoStep. This
+#                   overrides reaction.model in rdeConfig. With --runs each model
+#                   has its own run folder.
 #   --fresh         delete earlier result times of this run (optimize: the
 #                   stored evaluations) before starting
 #   --budget N      optimize only: start at most N new solver evaluations
@@ -24,9 +27,10 @@ CASE_REL="cases/annulus2D"
 FOAM_FILE="$CASE/annulus2D.foam"
 
 usage() {
-    echo "Usage: ./bin/rdesim-wsl simulate|prepare|run|open|cells [--case PATH] [--runs] [--fresh]" >&2
-    echo "       ./bin/rdesim-wsl optimize [--case PATH] [--fresh] [--budget N]" >&2
+    echo "Usage: ./bin/rdesim-wsl simulate|prepare|run|open|cells [--case PATH] [--model NAME] [--runs] [--fresh]" >&2
+    echo "       ./bin/rdesim-wsl optimize [--case PATH] [--model NAME] [--fresh] [--budget N]" >&2
     echo "       ./bin/rdesim-wsl build|test" >&2
+    echo "       ./bin/rdesim-wsl cjcheck [--case PATH] [--model NAME]" >&2
     echo "  simulate source OpenFOAM, prepare, build if needed, run, open ParaView" >&2
     echo "  prepare  write the case from its rdeConfig" >&2
     echo "  build    source OpenFOAM 14 and run Allwmake" >&2
@@ -34,6 +38,7 @@ usage() {
     echo "  open     start Windows ParaView on the latest result in the case" >&2
     echo "  cells    print the mesh-resolution report and render pMax with pvbatch" >&2
     echo "  test     Allwmake, unit tests, then blockMesh and foamRun on annulus2D" >&2
+    echo "  cjcheck  1D tube: measured detonation speed against Chapman-Jouguet for the model" >&2
     echo "  optimize run python3 -m rdesim optimize; finished evaluations are reused" >&2
     echo "  --case   case directory, default cases/annulus2D" >&2
     echo "  --runs   keep results in runs/<case>-<model>-<fingerprint>; the same physics resumes" >&2
@@ -228,16 +233,16 @@ case_windows_paths() {
 cmd_prepare() {
     cd "$ROOT"
     if [ "$USE_RUNS" -eq 1 ]; then
-        python3 -m rdesim prepare --config "$CONFIG" --run-folder --runs-root "$RUNS_ROOT"
+        python3 -m rdesim prepare --config "$CONFIG" --run-folder --runs-root "$RUNS_ROOT" ${MODEL:+--model "$MODEL"}
     else
-        python3 -m rdesim prepare --config "$CONFIG" --case "$CASE"
+        python3 -m rdesim prepare --config "$CONFIG" --case "$CASE" ${MODEL:+--model "$MODEL"}
     fi
 }
 
 # --runs: point CASE at runs/<case>-<model>-<fingerprint> for this config.
 select_run_folder() {
     if [ "$USE_RUNS" -eq 1 ]; then
-        CASE="$(cd "$ROOT" && python3 -m rdesim run-dir --config "$CONFIG" --runs-root "$RUNS_ROOT")"
+        CASE="$(cd "$ROOT" && python3 -m rdesim run-dir --config "$CONFIG" --runs-root "$RUNS_ROOT" ${MODEL:+--model "$MODEL"})"
         FOAM_FILE="$CASE/$(basename "$CASE").foam"
         CASE_REL="$CASE"
         echo "Run folder: $CASE"
@@ -452,7 +457,7 @@ cmd_test() {
     select_case "cases/annulus2D"
     source_openfoam
     ./Allwmake
-    python3 -m unittest tests.test_rdesim tests.test_runs
+    python3 -m unittest tests.test_rdesim tests.test_runs tests.test_reaction_models
     (cd "$CASE" && ./Allclean)
     clear_result_times "$CASE"
     (cd "$CASE" && blockMesh && foamRun)
@@ -523,6 +528,9 @@ cmd_optimize() {
     source_openfoam
     cmd_build_if_needed
     set -- --config "$CONFIG"
+    if [ -n "$MODEL" ]; then
+        set -- "$@" --model "$MODEL"
+    fi
     if [ -n "$BUDGET" ]; then
         set -- "$@" --budget "$BUDGET"
     fi
@@ -532,11 +540,22 @@ cmd_optimize() {
     python3 -m rdesim optimize "$@"
 }
 
+# One-dimensional tube with the selected model. The case is written to
+# runs/cjcheck-<model> and rewritten on every call.
+cmd_cjcheck() {
+    cd "$ROOT"
+    source_openfoam
+    cmd_build_if_needed
+    name="${MODEL:-$(python3 -c "import sys; from rdesim.config import load_config, reaction_model; print(reaction_model(load_config(sys.argv[1])))" "$CONFIG")}"
+    python3 -m rdesim.cjcheck --config "$CONFIG" ${MODEL:+--model "$MODEL"} --case "$RUNS_ROOT/cjcheck-$name"
+}
+
 COMMAND=""
 CASE_OPT=""
 USE_RUNS=0
 FRESH=0
 BUDGET=""
+MODEL=""
 RUNS_ROOT="${RDESIM_RUNS:-$ROOT/runs}"
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -552,6 +571,16 @@ while [ "$#" -gt 0 ]; do
             ;;
         --runs) USE_RUNS=1 ;;
         --fresh) FRESH=1 ;;
+        --model)
+            shift
+            if [ "$#" -lt 1 ]; then
+                die "--model needs a name"
+            fi
+            MODEL="$1"
+            ;;
+        --model=*)
+            MODEL="${1#--model=}"
+            ;;
         --budget)
             shift
             if [ "$#" -lt 1 ]; then
@@ -563,7 +592,7 @@ while [ "$#" -gt 0 ]; do
             BUDGET="${1#--budget=}"
             ;;
         -*)
-            die "Unknown option $1. Use --case PATH, --runs, --fresh, or --budget N."
+            die "Unknown option $1. Use --case PATH, --model NAME, --runs, --fresh, or --budget N."
             ;;
         *)
             if [ -n "$COMMAND" ]; then
@@ -585,7 +614,7 @@ if [ -n "$BUDGET" ] && [ "$COMMAND" != "optimize" ]; then
 fi
 
 case "$COMMAND" in
-    simulate|prepare|run|open|cells|optimize)
+    simulate|prepare|run|open|cells|optimize|cjcheck)
         select_case "${CASE_OPT:-cases/annulus2D}"
         ;;
     build|test)
@@ -608,4 +637,5 @@ case "$COMMAND" in
     cells) cmd_cells ;;
     test) cmd_test ;;
     optimize) cmd_optimize ;;
+    cjcheck) cmd_cjcheck ;;
 esac

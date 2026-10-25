@@ -46,9 +46,14 @@ class _Budget:
         self.used += 1
 
 
-def optimize(config_path: str | Path, budget: int | None = None, fresh: bool = False) -> dict:
+def optimize(
+    config_path: str | Path,
+    budget: int | None = None,
+    fresh: bool = False,
+    model: str | None = None,
+) -> dict:
     config_path = Path(config_path).resolve()
-    base = load_config(config_path)
+    base = load_config(config_path, model)
     opt = base["raw"]["optimization"]
     work = Path(str(opt["workDirectory"]))
     if not work.is_absolute():
