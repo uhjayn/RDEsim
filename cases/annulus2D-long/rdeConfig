@@ -139,7 +139,7 @@ numerics
     // case leaves the disturbance on the hot kernel. By 2e-5 s the pressure
     // front has moved to about y = 0.048 m. The next few microseconds hit a
     // non-positive temperature in shockFluid's sound-speed square root.
-    endTime             2e-5;
+    endTime             1e-4;
     adjustTimeStep      yes;
     deltaTFactor        1.2;
     writeFormat         ascii;
