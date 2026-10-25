@@ -233,6 +233,16 @@ hyperbolicity
     localSourceIntegrations     (pointImplicit explicit);
 }
 
+// Scale |U| when kinetic energy would drive T below TMin. e + 1/2|U|^2
+// is kept. Energy is added only if the cell cannot reach TMin even at rest.
+// The solver prints how many cells this touches. Omit the dictionary to
+// leave the Kurganov update unchanged.
+positivity
+{
+    enabled     yes;
+    TMin        50;
+}
+
 boundaries
 {
     inlet

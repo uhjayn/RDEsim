@@ -96,7 +96,11 @@ Foam::solvers::rdeFluid::rdeFluid(fvMesh& mesh)
     ),
     flowModel_(word(properties_.lookup("flowModel"))),
     equationOfState_(word(properties_.lookup("equationOfState"))),
-    ddtScheme_(word(properties_.lookup("ddtScheme")))
+    ddtScheme_(word(properties_.lookup("ddtScheme"))),
+    positivityEnabled_(false),
+    positivityTMin_(0),
+    nPositivity_(0),
+    nEnergyFloor_(0)
 {
     if (TRef_.value() <= 0 || TFloor_.value() <= 0)
     {
@@ -106,13 +110,40 @@ Foam::solvers::rdeFluid::rdeFluid(fvMesh& mesh)
             << exit(FatalIOError);
     }
 
+    if (properties_.found("positivity"))
+    {
+        const dictionary& positivity = properties_.subDict("positivity");
+        positivityEnabled_ = positivity.lookup<bool>("enabled");
+        if (positivityEnabled_)
+        {
+            positivityTMin_ = positivity.lookup<scalar>("TMin");
+            if (positivityTMin_ <= 0)
+            {
+                FatalIOErrorInFunction(positivity)
+                    << "positivity TMin must be positive. "
+                    << "It is a floor used when kinetic energy would make "
+                    << "temperature non-positive, not a default gas temperature."
+                    << exit(FatalIOError);
+            }
+            Info<< "Positivity guard is on. |U| is scaled when T would fall "
+                << "below " << positivityTMin_ << " K, keeping e + 1/2|U|^2. "
+                << "Each activation is counted." << nl;
+        }
+    }
+
     mesh.schemes().setFluxRequired(lambda_.name());
     checkHyperbolicity();
 }
 
 
 Foam::solvers::rdeFluid::~rdeFluid()
-{}
+{
+    if (positivityEnabled_)
+    {
+        Info<< "Positivity guard total cell-steps: " << nPositivity_
+            << ", energy floor: " << nEnergyFloor_ << endl;
+    }
+}
 
 
 void Foam::solvers::rdeFluid::prePredictor()

@@ -72,6 +72,7 @@ void Foam::solvers::rdeFluid::thermophysicalPredictor()
     EEqn.solve();
     fvConstraints().constrain(e);
     thermo_.correct();
+    boundPositivity();
 }
 
 

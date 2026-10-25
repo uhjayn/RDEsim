@@ -261,6 +261,22 @@ class CaseTests(unittest.TestCase):
             control = (Path(tmp) / "cfl" / "system" / "controlDict").read_text(encoding="utf-8")
             self.assertIn("maxCo           0.4;", control)
 
+    def test_positivity_guard_is_optional_and_written(self):
+        config = load_config(EXAMPLE)
+        self.assertEqual(config["raw"]["positivity"]["enabled"], "yes")
+        with tempfile.TemporaryDirectory() as tmp:
+            prepare_case(config, Path(tmp) / "annulus")
+            text = (Path(tmp) / "annulus" / "constant" / "rdeProperties").read_text(encoding="utf-8")
+            self.assertIn("enabled    yes;", text)
+            self.assertIn("TMin       50;", text)
+        bare = load_config(EXAMPLE)
+        del bare["raw"]["positivity"]
+        load_config(_materialise(bare["raw"]))
+        rejected = load_config(EXAMPLE)
+        rejected["raw"]["positivity"]["TMin"] = 0
+        with self.assertRaises(ConfigError):
+            load_config(_materialise(rejected["raw"]))
+
 
 class OptimizerTests(unittest.TestCase):
     def test_grid_varies_step_height(self):
