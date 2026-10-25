@@ -2,7 +2,7 @@
 
 OpenFOAM runs in WSL. ParaView runs on Windows and opens the case through the WSL path.
 
-Edit `cases/annulus2D/rdeConfig` and `fuels/<name>/fuelDict` in Cursor. Those two files are the case. There is no separate GUI. Then start **RDEsim: Run and visualize** from Command Palette → **Tasks: Run Task**. That one task runs `./bin/rdesim-wsl simulate`. The script sources the OpenFOAM 14 bashrc, prepares `cases/annulus2D` from `rdeConfig`, builds with `Allwmake` only when `librdeFluidSolver.so` is missing or the solver sources are newer, runs `Allrun`, and opens the result in Windows ParaView. It stops at the first failure. If ParaView is not installed, the case written by `Allrun` stays on disk and the script prints the `\\wsl$\` path to open.
+Edit `cases/annulus2D/rdeConfig` and `fuels/<name>/fuelDict` in Cursor. Those two files are the case. There is no separate GUI. Then start **RDEsim: Run and visualize** from Command Palette → **Tasks: Run Task**. That one task runs `./bin/rdesim-wsl simulate`. The script sources the OpenFOAM 14 bashrc, prepares `cases/annulus2D` from `rdeConfig`, builds with `Allwmake` only when `librdeFluidSolver.so` is missing or the solver sources are newer, runs `Allrun`, and asks Windows to start ParaView. It stops at the first failure. It says ParaView is running only when `tasklist.exe` lists `paraview.exe`. If that launch fails, the case stays on disk and the script prints a path to paste into ParaView's File → Open.
 
 The same command from a WSL terminal is `./bin/rdesim-wsl simulate`.
 
@@ -10,13 +10,13 @@ Four separate tasks remain if you want one step only: **RDEsim: Prepare case**, 
 
 **RDEsim: Run tests** runs `./bin/rdesim-wsl test`. That sources the OpenFOAM 14 bashrc, runs `Allwmake`, runs `python3 -m unittest tests.test_rdesim`, then `blockMesh` and `foamRun` on `cases/annulus2D`. It removes an earlier result time folder first and keeps `0/`. It stops at the first failure and prints the time folder `foamRun` wrote.
 
-The open task finds ParaView at `/mnt/c/Program Files/ParaView*/bin/paraview.exe` and opens:
+The open task looks for `paraview.exe` under `C:\Program Files\ParaView*\bin`, `Program Files (x86)`, and a per-user `AppData\Local` install. A folder named `ParaView 6.2.0` matches that pattern. Set `RDESIM_PARAVIEW_EXE` to the full path of `paraview.exe` if yours lives somewhere else. The script prints that path, then starts ParaView with `powershell.exe` `Start-Process` (or `cmd.exe /c start` if PowerShell is missing) so the window belongs to the Windows session. It does not treat a WSL process id as success.
+
+Colour **p** first, then **T**, **rho**, **U**, and **lambda**. **e** is there when the thermo model has written it. There is no separate detonation-indicator field. If `paraview.exe` starts and no window appears, reinstall ParaView on Windows. To open the case yourself, paste this into File → Open, with `<distro>` from `wsl.exe -l -q` and `<you>` your Ubuntu home:
 
 ```text
-\\wsl$\<distro>\home\<you>\RDEsim\cases\annulus2D\annulus2D.foam
+\\wsl.localhost\<distro>\home\<you>\RDEsim\cases\annulus2D\annulus2D.foam
 ```
-
-`<distro>` comes from `$WSL_DISTRO_NAME` in the WSL terminal. You do not type the path. Colour **p** first, then **T**, **rho**, **U**, and **lambda**. **e** is there when the thermo model has written it. There is no separate detonation-indicator field.
 
 The checkout includes the initial directory `0/`. A result time folder exists only after `Allrun` finishes, which **RDEsim: Run and visualize** does for you. The separate open task stops with an error if that folder is not there yet, and it does not treat `0/` as a result. The script looks for the OpenFOAM 14 bashrc at `/opt/openfoam14/etc/bashrc`, then `~/OpenFOAM/OpenFOAM-14/etc/bashrc`, and stops if neither file exists.
 
@@ -34,7 +34,7 @@ Locked target:
 
 - Ubuntu 26.04.1 LTS (Resolute Raccoon) in WSL2, where every OpenFOAM command runs. Not Ubuntu 26.10.
 - OpenFOAM Foundation 14 (released 14 July 2026), package `openfoam14`, sourced with `. /opt/openfoam14/etc/bashrc` in that WSL terminal. Not the OpenFOAM.com / Keysight line and not v2606.
-- ParaView installed on Windows. It opens `\\wsl$\<distro>\...\cases\annulus2D\annulus2D.foam`. A `paraFoam` session inside WSL is optional.
+- ParaView installed on Windows. The script starts it in the Windows session and opens `\\wsl.localhost\<distro>\...\cases\annulus2D\annulus2D.foam`. A `paraFoam` session inside WSL is optional.
 
 The install commands below are the ones published at <https://openfoam.org/download/14-ubuntu/>. Package `openfoam14` (20261008) was installed from that repository on Ubuntu 24.04 in the authoring environment, which is not the Ubuntu 26.04 WSL machine. `./Allwmake`, `blockMesh`, and `foamRun` were run there on `cases/annulus2D`. The run reached `5e-6` s and wrote time folders. Windows ParaView was not launched. The solver is the OpenFOAM 14 `shockFluid` module loaded by `foamRun` as `librdeFluidSolver.so`.
 
@@ -61,7 +61,7 @@ sudo apt update
 sudo apt -y install openfoam14
 ```
 
-Confirm the pack date with `apt-cache policy openfoam14`. The July 2026 packs and the later `20260724` / `20261008` packs are the same v14 line. An optional newer source tarball, not required for the package install, is `http://dl.openfoam.org/source/14.20261008`. The Foundation page says this package also installs a `paraview` package inside Ubuntu when one is missing. That Ubuntu binary is not the viewer for this setup. Open results in the ParaView installed on Windows, using the `\\wsl$\` path at the top of this file.
+Confirm the pack date with `apt-cache policy openfoam14`. The July 2026 packs and the later `20260724` / `20261008` packs are the same v14 line. An optional newer source tarball, not required for the package install, is `http://dl.openfoam.org/source/14.20261008`. The Foundation page says this package also installs a `paraview` package inside Ubuntu when one is missing. That Ubuntu binary is not the viewer for this setup. Open results in the ParaView installed on Windows. The one-line fallback is the `\\wsl.localhost\` path at the top of this file.
 
 Every new terminal that builds or runs a case needs the Foundation bashrc:
 
@@ -217,10 +217,14 @@ The unit test drives the same loop with `tests/stub_solver.py` so it does not ne
 
 ## ParaView on Windows
 
-**RDEsim: Run and visualize** opens the case stub below in the ParaView installed on Windows after the run. The separate task **RDEsim: Open latest result in Windows ParaView** does only that open. To open it yourself, File → Open and choose the same path. Replace `<distro>` with a name printed by `wsl.exe -l -q`. Replace `<you>` with the Ubuntu home directory:
+**RDEsim: Run and visualize** asks Windows to start ParaView after the run. The separate task **RDEsim: Open latest result in Windows ParaView** does only that launch. Both print the `paraview.exe` path, the exact `Start-Process` or `cmd.exe /c start` command, and its exit code. After a short wait they run `tasklist.exe /FI "IMAGENAME eq paraview.exe"`. The line `Windows reports paraview.exe is running.` is printed only when that list contains `paraview.exe`. A WSL pid is not a running ParaView.
+
+The script tries the path from `wslpath -w` first, then `\\wsl.localhost\<distro>\...`, then `\\wsl$\<distro>\...`, and stops at the first one that produces a Windows `paraview.exe` process. Set `RDESIM_PARAVIEW_EXE` if the executable is not under `Program Files`, `Program Files (x86)`, or `AppData\Local`.
+
+If Task Manager still has no `paraview.exe`, the script says the launch failed, prints the command it ran, and prints this fallback. If `paraview.exe` starts and no window appears, reinstall ParaView on Windows. Paste the path into ParaView's File → Open. Replace `<distro>` with the name from `wsl.exe -l -q` (for example `Ubuntu-26.04`). Replace `<you>` with the Ubuntu home directory:
 
 ```text
-\\wsl$\<distro>\home\<you>\RDEsim\cases\annulus2D\annulus2D.foam
+\\wsl.localhost\<distro>\home\<you>\RDEsim\cases\annulus2D\annulus2D.foam
 ```
 
 That file is the OpenFOAM reader stub. It is in the checkout before any run. The mesh and fields come from the case next to it. Colour these cell fields, in this order when you want to see the wave:
@@ -241,7 +245,7 @@ The initial directory `0/` is already in the checkout. A later time folder, the 
 paraFoam
 ```
 
-`pvbatch paraview/view_rde.py cases/annulus2D` is the same kind of optional WSL path. It was not run here. There is no `.pvsm` state file, because those files embed absolute paths. The Windows `\\wsl$\` path above is the setup this repository expects.
+`pvbatch paraview/view_rde.py cases/annulus2D` is the same kind of optional WSL path. It was not run here. There is no `.pvsm` state file, because those files embed absolute paths. The Windows `\\wsl.localhost\` path above is the manual fallback. This environment cannot start a real Windows ParaView; the launch text was checked with stub `powershell.exe` and `tasklist.exe` only.
 
 ## Equations
 
