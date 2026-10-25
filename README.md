@@ -1,6 +1,34 @@
 # RDEsim
 
-RDEsim is a first version of a rotating-detonation-engine geometry tool. It writes an OpenFOAM 14 case, checks that the selected model stays a hyperbolic balance law, and can repeat that case while it changes wall steps and other geometry. The flow solver is `rdeFluid`, a small module on top of the Foundation `shockFluid` solver (Kurganov–Tadmor).
+OpenFOAM runs in WSL. ParaView runs on Windows and opens the case through the WSL path.
+
+Run every OpenFOAM command in the Ubuntu terminal, after sourcing the Foundation OpenFOAM 14 bashrc:
+
+```sh
+. /opt/openfoam14/etc/bashrc
+```
+
+Build and run from the repository root in that same terminal:
+
+```sh
+./Allwmake
+cd cases/annulus2D
+./Allrun
+```
+
+`Allrun` is `blockMesh` then `foamRun`. The checkout already contains the initial time directory `0/`. A result time folder (the solver output ParaView steps through) exists only after `./Allrun` finishes. Until then, Windows ParaView can open the case and will show only that initial `0/` data.
+
+Visualization is ParaView on Windows, not a viewer inside this repository. In a Windows PowerShell or Command Prompt, list distros with `wsl.exe -l -q` and replace `<distro>` below with that name. Replace `<you>` with your Ubuntu home directory name. File → Open:
+
+```text
+\\wsl$\<distro>\home\<you>\RDEsim\cases\annulus2D\annulus2D.foam
+```
+
+Colour **p** first. Then colour **T**, **rho**, **U**, and **lambda**. Those are the fields that show the wave. **e** appears after the run if the thermo model wrote it. There is no separate detonation-indicator field.
+
+`paraFoam` inside WSL is optional and secondary. From `cases/annulus2D`, after the same bashrc source, `paraFoam` uses the OpenFOAM-bundled reader. The Windows path above is the one to use with the ParaView installed on Windows.
+
+RDEsim writes an OpenFOAM 14 case, checks that the selected model stays a hyperbolic balance law, and can repeat that case while it changes wall steps and other geometry. The flow solver is `rdeFluid`, a small module on top of the Foundation `shockFluid` solver (Kurganov–Tadmor).
 
 This is not a production RDE code. The gas is one perfect gas with one progress variable. The fuel numbers are illustrative. Nothing here has been compared with a measured detonation speed, thrust, or wave count. See [What is not physically validated](#what-is-not-physically-validated).
 
@@ -10,9 +38,9 @@ The checkout is an ordinary git tree. Clone it on the Ubuntu distro and open tha
 
 Locked target:
 
-- Ubuntu 26.04.1 LTS (Resolute Raccoon), the usual WSL2 Ubuntu. Not Ubuntu 26.10.
-- OpenFOAM Foundation 14 (released 14 July 2026), package `openfoam14`. Not the OpenFOAM.com / Keysight line and not v2606.
-- ParaView from that same package, or a Windows ParaView pointed at the WSL case path.
+- Ubuntu 26.04.1 LTS (Resolute Raccoon) in WSL2, where every OpenFOAM command runs. Not Ubuntu 26.10.
+- OpenFOAM Foundation 14 (released 14 July 2026), package `openfoam14`, sourced with `. /opt/openfoam14/etc/bashrc` in that WSL terminal. Not the OpenFOAM.com / Keysight line and not v2606.
+- ParaView installed on Windows. It opens `\\wsl$\<distro>\...\cases\annulus2D\annulus2D.foam`. A `paraFoam` session inside WSL is optional.
 
 The install commands below are the ones published at <https://openfoam.org/download/14-ubuntu/>. They were not executed while this tree was prepared. `wmake`, `blockMesh`, `foamRun`, and ParaView were not run here either: this environment has no OpenFOAM and no ParaView. The solver sources follow the OpenFOAM 14 API on the Foundation git line (`shockFluid`, `fieldMapper`, `foamRun` loading `librdeFluidSolver.so`). Foundation v14 stays compatible inside the v14 line; a later pack such as 20261008 was not compiled against.
 
@@ -39,7 +67,7 @@ sudo apt update
 sudo apt -y install openfoam14
 ```
 
-The Foundation page says that package also installs `paraview` when it is missing. This tree does not name a ParaView version, because that version was not checked. Confirm the pack date with `apt-cache policy openfoam14`. The July 2026 packs and the later `20260724` / `20261008` packs are the same v14 line. An optional newer source tarball, not required for the package install, is `http://dl.openfoam.org/source/14.20261008`.
+Confirm the pack date with `apt-cache policy openfoam14`. The July 2026 packs and the later `20260724` / `20261008` packs are the same v14 line. An optional newer source tarball, not required for the package install, is `http://dl.openfoam.org/source/14.20261008`. The Foundation page says this package also installs a `paraview` package inside Ubuntu when one is missing. That Ubuntu binary is not the viewer for this setup. Open results in the ParaView installed on Windows, using the `\\wsl$\` path at the top of this file.
 
 Every new terminal that builds or runs a case needs the Foundation bashrc:
 
@@ -167,13 +195,15 @@ Microstructure entries live under `boundaries.acoustics.microstructure`: `quarte
 
 ## Run a case
 
+In the WSL Ubuntu terminal, from the repository root:
+
 ```sh
 . /opt/openfoam14/etc/bashrc
 cd cases/annulus2D
 ./Allrun
 ```
 
-`Allrun` is `blockMesh` then `foamRun`. `./Allclean` removes `constant/polyMesh`, `postProcessing`, numbered VTK directories, `log.*`, and `processor*`. It leaves `VTK/geometryBlocks.vtk`.
+`Allrun` is `blockMesh` then `foamRun`. `./Allclean` removes `constant/polyMesh`, `postProcessing`, numbered VTK directories, `log.*`, and `processor*`. It leaves `VTK/geometryBlocks.vtk` and the initial `0/` directory. Result time folders are created by `foamRun` and exist only after `Allrun`.
 
 The example `endTime` is `5e-6` s and `deltaT` is `1e-8` s. That is a short first window, not a burnout.
 
@@ -189,31 +219,33 @@ A constraint whose quantity contains `.` or `[` is a config value checked before
 
 The unit test drives the same loop with `tests/stub_solver.py` so it does not need OpenFOAM. The example command stays `foamRun`.
 
-## ParaView
+## ParaView on Windows
 
-From the case directory, after sourcing OpenFOAM:
-
-```sh
-paraFoam
-```
-
-Or, from the repository:
-
-```sh
-pvbatch paraview/view_rde.py cases/annulus2D
-```
-
-Open `cases/annulus2D/annulus2D.foam` if you start ParaView yourself. Colour **p** first. Then look at **T**, **rho**, **U**, and **lambda**. **e** is the sensible internal energy when the thermo model has written it. The detonation, if the short window and the one-step rate produce one, is the jump in those fields. There is no extra wave-indicator field.
-
-`VTK/geometryBlocks.vtk` is one hex per block (VTK cell type 12). It is the block outline, not the mesh `blockMesh` builds.
-
-On Windows, point ParaView at the WSL path. Replace `<distro>` with a name from `wsl.exe -l -q`:
+Open the Windows ParaView you already have installed. File → Open, and choose the case stub through the WSL share. Replace `<distro>` with a name printed by `wsl.exe -l -q`. Replace `<you>` with the Ubuntu home directory:
 
 ```text
 \\wsl$\<distro>\home\<you>\RDEsim\cases\annulus2D\annulus2D.foam
 ```
 
-The script was not run here, and there is no `.pvsm` state file, because those files embed absolute paths.
+That file is the OpenFOAM reader stub. It is in the checkout before any run. The mesh and fields come from the case next to it. Colour these cell fields, in this order when you want to see the wave:
+
+1. **p** — pressure
+2. **T** — temperature
+3. **rho** — density
+4. **U** — velocity
+5. **lambda** — progress variable (`0` unburned, `1` burned)
+
+The initial directory `0/` is already in the checkout, so ParaView can show those fields before a run. A later time folder, the one you step to after the start, exists only after `./Allrun` in WSL. **e** (sensible internal energy) is there when the solver has written it. There is no extra detonation-indicator field. The wave, if the short window produces one, is the jump in **p**, **T**, **rho**, and **lambda**.
+
+`VTK/geometryBlocks.vtk` is one hex per block (VTK cell type 12). It is the block outline, not the mesh `blockMesh` builds. Use `annulus2D.foam` for the fields.
+
+`paraFoam` inside WSL is a secondary option, only if you want the reader that ships with OpenFOAM. From `cases/annulus2D`, after `. /opt/openfoam14/etc/bashrc`:
+
+```sh
+paraFoam
+```
+
+`pvbatch paraview/view_rde.py cases/annulus2D` is the same kind of optional WSL path. It was not run here. There is no `.pvsm` state file, because those files embed absolute paths. The Windows `\\wsl$\` path above is the setup this repository expects.
 
 ## Equations
 
