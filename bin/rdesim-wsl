@@ -1,0 +1,173 @@
+#!/bin/sh
+# Actions for the WSL Cursor tasks. Linux paths only.
+#   ./bin/rdesim-wsl prepare|build|run|open
+# Edit cases/annulus2D/rdeConfig and fuels/<name>/fuelDict. This script does
+# not change the physics.
+
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+CASE="$ROOT/cases/annulus2D"
+CONFIG="$CASE/rdeConfig"
+FOAM_FILE="$CASE/annulus2D.foam"
+
+usage() {
+    echo "Usage: ./bin/rdesim-wsl prepare|build|run|open" >&2
+    echo "  prepare  write the annulus2D case from rdeConfig" >&2
+    echo "  build    source OpenFOAM 14 and run Allwmake" >&2
+    echo "  run      source OpenFOAM 14 and run cases/annulus2D/Allrun" >&2
+    echo "  open     open the latest result in Windows ParaView" >&2
+}
+
+die() {
+    echo "rdesim-wsl: $*" >&2
+    exit 1
+}
+
+openfoam_bashrc() {
+    package="/opt/openfoam14/etc/bashrc"
+    source_tree="$HOME/OpenFOAM/OpenFOAM-14/etc/bashrc"
+    if [ -f "$package" ]; then
+        echo "$package"
+        return 0
+    fi
+    if [ -f "$source_tree" ]; then
+        echo "$source_tree"
+        return 0
+    fi
+    die "OpenFOAM 14 bashrc was not found. Looked for $package and $source_tree. Install openfoam14 in this Ubuntu distro, or unpack OpenFOAM-14 under ~/OpenFOAM."
+}
+
+source_openfoam() {
+    bashrc="$(openfoam_bashrc)"
+    echo "Sourcing $bashrc"
+    # The OpenFOAM bashrc reads variables it does not set itself.
+    set +eu
+    # shellcheck disable=SC1090
+    . "$bashrc"
+    set -eu
+    if [ -z "${WM_PROJECT_DIR:-}" ]; then
+        die "Sourced $bashrc but WM_PROJECT_DIR is still empty."
+    fi
+    if ! command -v foamRun >/dev/null 2>&1; then
+        die "Sourced $bashrc but foamRun is not on PATH."
+    fi
+}
+
+latest_result_time() {
+    CASE="$1" python3 - <<'PY'
+import math
+import os
+from pathlib import Path
+
+case = Path(os.environ["CASE"])
+best = None
+for path in case.iterdir():
+    if not path.is_dir():
+        continue
+    try:
+        value = float(path.name)
+    except ValueError:
+        continue
+    if not math.isfinite(value) or value <= 0:
+        continue
+    if best is None or value > best[0]:
+        best = (value, path.name)
+if best is None:
+    raise SystemExit(1)
+print(best[1])
+PY
+}
+
+windows_paraview() {
+    # The space in "Program Files" is part of the path. nullglob keeps a
+    # missing install as an empty list instead of a literal pattern.
+    set --
+    # shellcheck disable=SC2086
+    for candidate in "/mnt/c/Program Files"/ParaView*/bin/paraview.exe; do
+        if [ -f "$candidate" ]; then
+            set -- "$@" "$candidate"
+        fi
+    done
+    if [ "$#" -eq 0 ]; then
+        die "Windows ParaView was not found under /mnt/c/Program Files/ParaView*/bin/paraview.exe. Install ParaView on Windows. /mnt/c must be the Windows C: drive."
+    fi
+    # Highest version sort wins when more than one ParaView is installed.
+    printf '%s\n' "$@" | sort -V | tail -n 1
+}
+
+wsl_unc() {
+    linux_path="$1"
+    if [ -z "${WSL_DISTRO_NAME:-}" ]; then
+        die "WSL_DISTRO_NAME is not set, so the \\\\wsl\$\\ path cannot be built. Run this from the Ubuntu distro in WSL, including Cursor's WSL window."
+    fi
+    case "$linux_path" in
+        /*) ;;
+        *) die "Case path is not absolute: $linux_path" ;;
+    esac
+    relative="${linux_path#/}"
+    relative_win="$(printf '%s' "$relative" | sed 's|/|\\|g')"
+    printf '\\\\wsl$\\%s\\%s\n' "$WSL_DISTRO_NAME" "$relative_win"
+}
+
+cmd_prepare() {
+    cd "$ROOT"
+    python3 -m rdesim prepare --config "$CONFIG" --case "$CASE"
+}
+
+cmd_build() {
+    cd "$ROOT"
+    source_openfoam
+    ./Allwmake
+}
+
+cmd_run() {
+    cd "$ROOT"
+    source_openfoam
+    if [ -z "${FOAM_USER_LIBBIN:-}" ] || [ ! -e "$FOAM_USER_LIBBIN/librdeFluidSolver.so" ]; then
+        die "librdeFluidSolver.so is not in FOAM_USER_LIBBIN. Run the Cursor task \"RDEsim: Build solver\" first (./bin/rdesim-wsl build)."
+    fi
+    (cd "$CASE" && ./Allrun)
+}
+
+cmd_open() {
+    if [ ! -f "$FOAM_FILE" ]; then
+        die "Missing $FOAM_FILE. Run the Cursor task \"RDEsim: Prepare case\" first."
+    fi
+    if ! time_name="$(latest_result_time "$CASE")"; then
+        die "No result time folder in cases/annulus2D yet. The initial 0/ directory is not a result. Run the Cursor task \"RDEsim: Run annulus2D\" (./bin/rdesim-wsl run) and wait for Allrun to finish."
+    fi
+    paraview="$(windows_paraview)"
+    unc="$(wsl_unc "$FOAM_FILE")"
+    echo "Latest result time folder: $CASE/$time_name"
+    echo "Opening $unc"
+    echo "ParaView: $paraview"
+    log="${TMPDIR:-/tmp}/rdesim-paraview.log"
+    # Detach so the Cursor task returns. ParaView stays open on Windows.
+    "$paraview" "$unc" >"$log" 2>&1 &
+    pid=$!
+    sleep 1
+    if ! kill -0 "$pid" 2>/dev/null; then
+        echo "ParaView exited immediately. Output:" >&2
+        cat "$log" >&2
+        die "Windows ParaView did not stay open. The path was $unc"
+    fi
+    echo "ParaView is running (pid $pid). Colour p, then T, rho, U, and lambda."
+    echo "Step the time slider to $time_name. That folder exists only after Allrun."
+}
+
+if [ "$#" -ne 1 ]; then
+    usage
+    exit 1
+fi
+
+case "$1" in
+    prepare) cmd_prepare ;;
+    build) cmd_build ;;
+    run) cmd_run ;;
+    open) cmd_open ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac

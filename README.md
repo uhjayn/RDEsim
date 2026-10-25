@@ -2,37 +2,34 @@
 
 OpenFOAM runs in WSL. ParaView runs on Windows and opens the case through the WSL path.
 
-Run every OpenFOAM command in the Ubuntu terminal, after sourcing the Foundation OpenFOAM 14 bashrc:
+Edit `cases/annulus2D/rdeConfig` and `fuels/<name>/fuelDict` in Cursor. Those two files are the case. There is no separate GUI. With the folder open in Cursor's WSL window, run a task instead of typing the shell commands: Command Palette → **Tasks: Run Task**.
 
-```sh
-. /opt/openfoam14/etc/bashrc
-```
+| Task | What it does |
+| --- | --- |
+| **RDEsim: Prepare case** | Rewrites `cases/annulus2D` from `rdeConfig` |
+| **RDEsim: Build solver** | Sources the OpenFOAM 14 bashrc and runs `Allwmake` |
+| **RDEsim: Run annulus2D** | Sources that bashrc and runs `cases/annulus2D/Allrun` (`blockMesh`, then `foamRun`) |
+| **RDEsim: Open latest result in Windows ParaView** | Opens `cases/annulus2D/annulus2D.foam` in the Windows ParaView install |
 
-Build and run from the repository root in that same terminal:
+Use that order after you change `rdeConfig` or a fuel file. Build again only when the solver sources change. The same four actions from a WSL terminal are `./bin/rdesim-wsl prepare`, `build`, `run`, and `open`.
 
-```sh
-./Allwmake
-cd cases/annulus2D
-./Allrun
-```
-
-`Allrun` is `blockMesh` then `foamRun`. The checkout already contains the initial time directory `0/`. A result time folder (the solver output ParaView steps through) exists only after `./Allrun` finishes. Until then, Windows ParaView can open the case and will show only that initial `0/` data.
-
-Visualization is ParaView on Windows, not a viewer inside this repository. In a Windows PowerShell or Command Prompt, list distros with `wsl.exe -l -q` and replace `<distro>` below with that name. Replace `<you>` with your Ubuntu home directory name. File → Open:
+The open task finds ParaView at `/mnt/c/Program Files/ParaView*/bin/paraview.exe` and opens:
 
 ```text
 \\wsl$\<distro>\home\<you>\RDEsim\cases\annulus2D\annulus2D.foam
 ```
 
-Colour **p** first. Then colour **T**, **rho**, **U**, and **lambda**. Those are the fields that show the wave. **e** appears after the run if the thermo model wrote it. There is no separate detonation-indicator field.
+`<distro>` comes from `$WSL_DISTRO_NAME` in the WSL terminal. You do not type the path. Colour **p** first, then **T**, **rho**, **U**, and **lambda**. **e** is there when the thermo model has written it. There is no separate detonation-indicator field.
 
-`paraFoam` inside WSL is optional and secondary. From `cases/annulus2D`, after the same bashrc source, `paraFoam` uses the OpenFOAM-bundled reader. The Windows path above is the one to use with the ParaView installed on Windows.
+The checkout includes the initial directory `0/`. A result time folder exists only after **RDEsim: Run annulus2D** (`Allrun`) finishes. The open task stops with an error if that folder is not there yet, and it does not treat `0/` as a result. Build and run look for the OpenFOAM 14 bashrc at `/opt/openfoam14/etc/bashrc`, then `~/OpenFOAM/OpenFOAM-14/etc/bashrc`, and stop with an error if neither file exists.
+
+`paraFoam` inside WSL is optional and secondary. From `cases/annulus2D`, after `. /opt/openfoam14/etc/bashrc`, `paraFoam` uses the reader shipped with OpenFOAM. The Windows ParaView task is the one to use with ParaView installed on Windows.
 
 RDEsim writes an OpenFOAM 14 case, checks that the selected model stays a hyperbolic balance law, and can repeat that case while it changes wall steps and other geometry. The flow solver is `rdeFluid`, a small module on top of the Foundation `shockFluid` solver (Kurganov–Tadmor).
 
 This is not a production RDE code. The gas is one perfect gas with one progress variable. The fuel numbers are illustrative. Nothing here has been compared with a measured detonation speed, thrust, or wave count. See [What is not physically validated](#what-is-not-physically-validated).
 
-The checkout is an ordinary git tree. Clone it on the Ubuntu distro and open that Linux path in Cursor's WSL window. This repository does not add editor settings or a cloud-only workflow, and the machine that prepared the tree does not share your WSL files.
+The checkout is an ordinary git tree. Clone it on the Ubuntu distro and open that Linux path in Cursor's WSL window. `.vscode/tasks.json` is only the four tasks above. The machine that prepared the tree does not share your WSL files.
 
 ## Environment
 
@@ -221,7 +218,7 @@ The unit test drives the same loop with `tests/stub_solver.py` so it does not ne
 
 ## ParaView on Windows
 
-Open the Windows ParaView you already have installed. File → Open, and choose the case stub through the WSL share. Replace `<distro>` with a name printed by `wsl.exe -l -q`. Replace `<you>` with the Ubuntu home directory:
+Use **RDEsim: Open latest result in Windows ParaView** after the run task. That task opens the case stub below in the ParaView installed on Windows. To open it yourself, File → Open and choose the same path. Replace `<distro>` with a name printed by `wsl.exe -l -q`. Replace `<you>` with the Ubuntu home directory:
 
 ```text
 \\wsl$\<distro>\home\<you>\RDEsim\cases\annulus2D\annulus2D.foam
@@ -235,7 +232,7 @@ That file is the OpenFOAM reader stub. It is in the checkout before any run. The
 4. **U** — velocity
 5. **lambda** — progress variable (`0` unburned, `1` burned)
 
-The initial directory `0/` is already in the checkout, so ParaView can show those fields before a run. A later time folder, the one you step to after the start, exists only after `./Allrun` in WSL. **e** (sensible internal energy) is there when the solver has written it. There is no extra detonation-indicator field. The wave, if the short window produces one, is the jump in **p**, **T**, **rho**, and **lambda**.
+The initial directory `0/` is already in the checkout. A later time folder, the one you step to after the start, exists only after **RDEsim: Run annulus2D** (`Allrun`) in WSL. The open task will not start ParaView until that folder is there. **e** (sensible internal energy) is there when the solver has written it. There is no extra detonation-indicator field. The wave, if the short window produces one, is the jump in **p**, **T**, **rho**, and **lambda**.
 
 `VTK/geometryBlocks.vtk` is one hex per block (VTK cell type 12). It is the block outline, not the mesh `blockMesh` builds. Use `annulus2D.foam` for the fields.
 
