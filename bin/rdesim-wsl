@@ -472,7 +472,7 @@ cmd_test() {
 cmd_cells() {
     cd "$ROOT"
     select_run_folder
-    python3 -m rdesim resolution --config "$CONFIG"
+    python3 -m rdesim resolution --config "$CONFIG" ${MODEL:+--model "$MODEL"}
     script="$ROOT/paraview/cell_structure.py"
     if [ ! -f "$FOAM_FILE" ]; then
         die "Missing $FOAM_FILE. Run ./bin/rdesim-wsl prepare first."

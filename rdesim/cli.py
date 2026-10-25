@@ -60,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
 
     resolution = sub.add_parser("resolution", help="Compare cell size with the one-step chemical length")
     resolution.add_argument("--config", required=True)
+    resolution.add_argument("--model", help=MODEL_HELP)
 
     args = parser.parse_args(argv)
     try:
@@ -70,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
                 parser.error("prepare needs exactly one of --case and --run-folder")
             return _prepare(Path(args.config), args.case, args.run_folder, args.runs_root, args.model)
         if args.command == "resolution":
-            print(resolution_report(load_config(Path(args.config))).text)
+            print(resolution_report(load_config(Path(args.config), args.model)).text)
             return 0
         if args.command == "run-dir":
             return _run_dir(Path(args.config), args.runs_root, args.model)
