@@ -29,7 +29,7 @@ mixture
 {
     specie
     {
-        molWeight   0.0209136338028;
+        molWeight   20.9136338028;
     }
     thermodynamics
     {

@@ -48,7 +48,7 @@ void Foam::solvers::rdeFluid::writeObjectives() const
                     << exit(FatalError);
             }
             const word patchName(word(objective.lookup("patch")));
-            const label patchi = mesh.boundaryMesh().findPatchID(patchName);
+            const label patchi = mesh.boundary().findIndex(patchName);
             if (patchi < 0)
             {
                 FatalErrorInFunction
@@ -124,13 +124,14 @@ void Foam::solvers::rdeFluid::writeObjectives() const
     mkDir(directory);
     {
         OFstream latest(directory/"objectives.dat");
-        latest << body.str();
+        // write(const char*) is plain text. operator<< on a Foam string quotes it.
+        latest.write(body.str().c_str());
     }
     const fileName stamped = directory/runTime.name();
     mkDir(stamped);
     {
         OFstream copy(stamped/"objectives.dat");
-        copy << body.str();
+        copy.write(body.str().c_str());
     }
 }
 
